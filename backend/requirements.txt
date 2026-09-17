@@ -1,0 +1,10 @@
+# CodeMentor AI - backend dependencies
+# Install with:  .venv/Scripts/python.exe -m pip install -r requirements.txt
+#
+# The MVP intentionally has no database driver, no Redis and no container
+# tooling. Code execution uses the standard library's subprocess module.
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+httpx>=0.27,<1.0
+python-dotenv>=1.0,<2.0

@@ -1,0 +1,27 @@
+# --- Python / backend ------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Secrets: never commit the real .env (it holds GEMINI_API_KEY)
+.env
+.env.local
+
+# --- Node / frontend ------------------------------------------------------
+node_modules/
+dist/
+.vite/
+
+# --- Editors / OS ---------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Assistant working directory ------------------------------------------
+# Session notes and verification screenshots. Remove this entry if the team
+# wants to version .workbuddy-ai/ (e.g. shared project skills).
+.workbuddy-ai/
