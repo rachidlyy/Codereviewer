@@ -1,0 +1,2 @@
+export type Problem={id:number;title:string;difficulty:'Easy'|'Medium';category:string;description:string;examples:{input:string;output:string}[];starter:string;tags:string[]};
+export type Review={overall_score:number;correctness_score:number;readability_score:number;efficiency_score:number;summary:string;issues:{type:string;title:string;explanation:string}[];suggestions:string[];complexity:{current_time:string;current_space:string;suggested_time:string;suggested_space:string};hint:string};
