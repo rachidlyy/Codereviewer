@@ -1,4 +1,4 @@
-# CodeMentor AI
+# CodeReviewer
 
 A web-based AI-powered coding practice and code review platform.
 
@@ -49,6 +49,7 @@ PROBLEM → CODE → RUN → TEST RESULTS → AI REVIEW → IMPROVEMENT
 │   │   ├── services/       # code_runner.py, ai_reviewer.py
 │   │   ├── data/           # problems.py, test_cases.py
 │   │   └── schemas/        # submission.py (request/response models)
+│   ├── scripts/            # smoke_test.py, check_retry_policy.py
 │   ├── requirements.txt
 │   └── .env.example
 │
@@ -112,6 +113,52 @@ afterwards. `/api/health` will report `"llm_configured": true`, and the
 
 ---
 
+## Checking it
+
+Two scripts live in `backend/scripts/`. Neither needs anything beyond
+`requirements.txt` — no test framework, no extra packages.
+
+### Before a demo — with both servers running
+
+```bash
+cd backend
+.venv/Scripts/python.exe scripts/smoke_test.py
+```
+
+Walks every endpoint the UI calls, in order, and prints a pass/fail line for
+each: service identity, the problem catalogue, the starter-code contract, code
+execution (including the `3/4` partial demo case), and the AI review. Exits
+non-zero if anything failed.
+
+```
+  16 passed   0 failed   0 warnings
+```
+
+`--no-review` skips the review section — the only part that spends API quota.
+`--base-url` points it at a different port.
+
+The starter-code check is worth keeping an eye on: it asserts that the starter
+code produces `failed` rather than `error`. An `error` there means a problem's
+`entrypoint` name has drifted away from its `starter` signature, which would
+otherwise show up as *every* submission erroring.
+
+### Any time — offline, no server, no key, no quota
+
+```bash
+cd backend
+.venv/Scripts/python.exe scripts/check_retry_policy.py
+```
+
+Replays real captured Gemini error bodies through the retry logic and asserts
+that a transient `503` backs off and retries, a `429` stating a long wait fails
+fast instead of hanging the request, and a `400` is never retried.
+
+> A `WARN` in the smoke test's review section is usually the Gemini free tier
+> rather than a bug: it allows 5 requests per minute and the flash models
+> intermittently return `503 high demand`. See `backend/.env.example`.
+
+---
+
 ## API
 
 | Method | Path | Purpose |
@@ -149,50 +196,3 @@ passes the three correctness cases but exceeds the limit on that one, which
 is what produces the demo's `3/4 tests passed` — and gives the AI reviewer
 something concrete to explain.
 
----
-
-## Two-minute demo
-
-1. **0:00** — Open the problem list.
-2. **0:20** — Select **Contains Duplicate**.
-3. **0:35** — Paste the intentionally inefficient O(n²) solution:
-
-   ```python
-   def containsDuplicate(nums):
-       for i in range(len(nums)):
-           for j in range(i + 1, len(nums)):
-               if nums[i] == nums[j]:
-                   return True
-       return False
-   ```
-
-4. **0:50** — Click **Run Code** → `3/4 tests passed` (partial).
-5. **1:10** — Click **Get AI Review** → scores, the quadratic-runtime issue,
-   and `Current: O(n²)` vs `Suggested: O(n)`.
-6. **1:40** — Click **Show Hint**, then **View Improved Approach**.
-
-The point to make out loud: *the system does not rely on the LLM alone. The
-code is tested first, and the AI receives the problem, the submitted code
-and the real execution results.*
-
----
-
-## Notes for the team
-
-**Code execution is not sandboxed.** Student code runs as a local
-subprocess with a timeout, a stripped environment (the API key is never
-visible to it) and an isolated working directory. That is deliberate for a
-one-week MVP. Everything execution-related lives in
-`backend/app/services/code_runner.py`, so swapping in a Docker sandbox later
-means reimplementing one function.
-
-**The LLM is behind one module.** `backend/app/services/ai_reviewer.py` is
-the only file that talks to a provider. To switch to OpenAI, rewrite
-`_call_llm`; nothing else changes.
-
-**No database.** `backend/app/data/problems.py` and `test_cases.py` hold the
-data. The accessor functions at the bottom of `problems.py` are the seam to
-replace when moving to PostgreSQL.
-
-**Changing the API shape?** Update `backend/app/schemas/submission.py` and
-`frontend/src/types/index.ts` together — they must stay in sync.

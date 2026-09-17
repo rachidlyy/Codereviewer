@@ -14,7 +14,7 @@ export default function Header({ onHome, offlineReview = false }: Props) {
           <Code2 size={18} />
         </div>
         <span>
-          CodeMentor <b>AI</b>
+          Code<b>Reviewer</b>
         </span>
       </div>
       <div className="header-right">

@@ -1,5 +1,5 @@
 /**
- * Thin client for the CodeMentor AI backend.
+ * Thin client for the CodeReviewer backend.
  *
  * This module is the only place in the frontend that knows about HTTP. Every
  * screen goes through these four calls, which map one-to-one onto the API
@@ -35,7 +35,7 @@ export class ApiError extends Error {
 }
 
 const OFFLINE_MESSAGE =
-  'Could not reach the CodeMentor API. Make sure the backend is running on ' + API_BASE + '.';
+  'Could not reach the CodeReviewer API. Make sure the backend is running on ' + API_BASE + '.';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;

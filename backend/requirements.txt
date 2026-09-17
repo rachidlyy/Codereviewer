@@ -1,4 +1,4 @@
-# CodeMentor AI - backend dependencies
+# CodeReviewer - backend dependencies
 # Install with:  .venv/Scripts/python.exe -m pip install -r requirements.txt
 #
 # The MVP intentionally has no database driver, no Redis and no container

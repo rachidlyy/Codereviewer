@@ -20,7 +20,9 @@ Two modes
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 from typing import Any
 
@@ -30,9 +32,20 @@ from app import config
 from app.data.problems import Problem
 from app.schemas.submission import ReviewResponse
 
+logger = logging.getLogger(__name__)
+
 
 class ReviewUnavailable(RuntimeError):
-    """Raised when the configured LLM could not produce a review."""
+    """Raised when the configured LLM could not produce a review.
+
+    ``retry_after`` carries the provider's own estimate of how long to wait
+    when it gave one, so the route can tell the student something more useful
+    than "try again" when the failure is a rate limit rather than a blip.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 # --------------------------------------------------------------------------
@@ -40,7 +53,7 @@ class ReviewUnavailable(RuntimeError):
 # --------------------------------------------------------------------------
 
 PROMPT_TEMPLATE = """\
-You are CodeMentor AI, a code reviewer and programming mentor on a \
+You are CodeReviewer, an expert code reviewer and programming mentor on a \
 university coding-practice platform.
 
 Review the student's submitted solution to the problem below. You are a \
@@ -140,8 +153,94 @@ def _extract_text(data: dict[str, Any]) -> str:
     return text
 
 
+#: HTTP statuses worth retrying. Google returns 503 "high demand" and 429
+#: for transient capacity/rate conditions.
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+#: Upper bound on a single exponential-backoff sleep, so retries stay bounded.
+MAX_RETRY_DELAY_SECONDS = 10.0
+
+#: Cap on how much of a provider error message is kept in an exception.
+#:
+#: Generous on purpose: Google's quota message puts the actionable part
+#: ("limit: 5", "Please retry in 50.7s") at the *end*, after two help URLs,
+#: so a tight slice cuts off exactly what you need to diagnose the failure.
+MAX_ERROR_MESSAGE_CHARS = 600
+
+
+def _server_retry_delay(response: httpx.Response | None) -> float | None:
+    """Seconds the provider explicitly asked us to wait, if it said so.
+
+    Gemini does **not** send a ``Retry-After`` header on a 429. It puts the
+    wait in the body instead::
+
+        {"error": {"details": [
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo",
+             "retryDelay": "50s"}]}}
+
+    Both are checked, because guessing at a backoff cannot beat being told.
+    """
+    if response is None:
+        return None
+
+    header = response.headers.get("retry-after")
+    if header:
+        try:
+            return max(0.0, float(header))
+        except ValueError:
+            pass
+
+    try:
+        details = (response.json().get("error") or {}).get("details") or []
+    except ValueError:
+        return None
+
+    for detail in details:
+        if str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+            raw = str(detail.get("retryDelay", ""))
+            if raw.endswith("s"):
+                try:
+                    return max(0.0, float(raw[:-1]))
+                except ValueError:
+                    return None
+    return None
+
+
+def _backoff_delay(attempt: int) -> float:
+    """Exponential backoff for transient failures that stated no wait."""
+    return min(config.LLM_RETRY_BACKOFF_SECONDS * (2**attempt), MAX_RETRY_DELAY_SECONDS)
+
+
+def _describe_http_error(response: httpx.Response) -> str:
+    """A one-line reason for a failed call, without a mid-sentence cut.
+
+    The provider's ``error.message`` is the useful part - it names the quota
+    and how long to wait. Blindly slicing the raw body truncates exactly that.
+    """
+    message = ""
+    try:
+        message = (response.json().get("error") or {}).get("message") or ""
+    except ValueError:
+        message = ""
+    message = " ".join(str(message).split()) or " ".join(response.text.split())
+    if len(message) > MAX_ERROR_MESSAGE_CHARS:
+        message = message[: MAX_ERROR_MESSAGE_CHARS - 3] + "..."
+    return f"Gemini returned HTTP {response.status_code}: {message}"
+
+
 async def _call_llm(prompt: str) -> str:
-    """Send the prompt to Gemini and return the raw response text."""
+    """Send the prompt to Gemini, retrying transient failures.
+
+    Google's flash models intermittently answer with HTTP 503 "currently
+    experiencing high demand", and the free tier allows only a handful of
+    requests per minute before returning 429. Those are transient capacity
+    conditions, not configuration problems, so they are retried rather than
+    surfaced to the student - see ``config.LLM_MAX_ATTEMPTS``.
+
+    A 429 is different from a 503: the per-minute quota does not clear in a
+    second or two, so the wait the provider asks for is honoured when it is
+    short, and the call fails fast when it is not.
+    """
     url = f"{config.GEMINI_API_URL}/models/{config.GEMINI_MODEL}:generateContent"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -150,31 +249,86 @@ async def _call_llm(prompt: str) -> str:
             "responseMimeType": "application/json",
         },
     }
+    headers = {
+        "x-goog-api-key": config.GEMINI_API_KEY,
+        "Content-Type": "application/json",
+    }
 
-    try:
-        async with httpx.AsyncClient(timeout=config.LLM_TIMEOUT_SECONDS) as client:
-            response = await client.post(
-                url,
-                headers={
-                    "x-goog-api-key": config.GEMINI_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
+    attempts = max(1, config.LLM_MAX_ATTEMPTS)
+    last_reason = "unknown error"
+
+    for attempt in range(attempts):
+        is_last = attempt + 1 >= attempts
+        response: httpx.Response | None = None
+        delay = _backoff_delay(attempt)
+
+        try:
+            async with httpx.AsyncClient(timeout=config.LLM_TIMEOUT_SECONDS) as client:
+                response = await client.post(url, headers=headers, json=payload)
+        except httpx.TimeoutException as exc:
+            last_reason = f"no response within {config.LLM_TIMEOUT_SECONDS:g}s"
+            if is_last:
+                raise ReviewUnavailable(
+                    f"The model did not respond within {config.LLM_TIMEOUT_SECONDS:g}s."
+                ) from exc
+            logger.warning("Gemini timed out (attempt %d/%d), retrying.", attempt + 1, attempts)
+        except httpx.HTTPError as exc:
+            last_reason = f"could not reach the provider ({exc})"
+            if is_last:
+                raise ReviewUnavailable(f"Could not reach the model provider: {exc}") from exc
+            logger.warning(
+                "Gemini unreachable (attempt %d/%d), retrying.", attempt + 1, attempts
             )
-    except httpx.TimeoutException as exc:
-        raise ReviewUnavailable(f"The model did not respond within {config.LLM_TIMEOUT_SECONDS:g}s.") from exc
-    except httpx.HTTPError as exc:
-        raise ReviewUnavailable(f"Could not reach the model provider: {exc}") from exc
+        else:
+            if response.status_code < 400:
+                try:
+                    return _extract_text(response.json())
+                except ValueError as exc:
+                    raise ReviewUnavailable(
+                        "Gemini returned a malformed response body."
+                    ) from exc
 
-    if response.status_code >= 400:
-        raise ReviewUnavailable(
-            f"Gemini returned HTTP {response.status_code}: {response.text[:200]}"
-        )
+            last_reason = _describe_http_error(response)
 
-    try:
-        return _extract_text(response.json())
-    except ValueError as exc:
-        raise ReviewUnavailable("Gemini returned a malformed response body.") from exc
+            if response.status_code not in RETRYABLE_STATUSES:
+                # A real error - retrying will not help.
+                raise ReviewUnavailable(last_reason)
+
+            if is_last:
+                break
+
+            advised = _server_retry_delay(response)
+
+            if advised is not None and advised > config.LLM_MAX_RETRY_WAIT_SECONDS:
+                # Holding the request open for this long is worse for the
+                # student than an honest failure, and the remaining attempts
+                # would be spent against a quota that has not reset yet.
+                logger.warning(
+                    "Gemini asked for a %.0fs wait (attempt %d/%d) - failing fast "
+                    "instead of holding the request open.",
+                    advised,
+                    attempt + 1,
+                    attempts,
+                )
+                raise ReviewUnavailable(
+                    f"{last_reason} The provider asked for a {advised:.0f}s wait.",
+                    retry_after=advised,
+                )
+
+            if advised is not None:
+                delay = advised
+
+            logger.warning(
+                "Gemini transient failure HTTP %s (attempt %d/%d), retrying in %.1fs.",
+                response.status_code,
+                attempt + 1,
+                attempts,
+                delay,
+            )
+
+        await asyncio.sleep(delay)
+
+    raise ReviewUnavailable(f"Gemini was unavailable after {attempts} attempts ({last_reason}).")
 
 
 # --------------------------------------------------------------------------

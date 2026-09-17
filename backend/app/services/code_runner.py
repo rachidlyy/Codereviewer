@@ -127,7 +127,7 @@ def _run_case(
 
     started = time.perf_counter()
     try:
-        with tempfile.TemporaryDirectory(prefix="codementor-run-") as workdir:
+        with tempfile.TemporaryDirectory(prefix="codereviewer-run-") as workdir:
             completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
                 [_python_executable(), "-I", str(HARNESS_PATH)],
                 input=payload,

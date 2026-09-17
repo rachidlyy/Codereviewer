@@ -43,9 +43,15 @@ async def create_review(request: ReviewRequest) -> ReviewResponse:
         # Log the real reason for the developer, but never leak provider
         # detail to the student.
         logger.warning("AI review unavailable: %s", exc)
+        detail = UNAVAILABLE_MESSAGE
+        if exc.retry_after:
+            # A rate limit rather than a blip: telling the student how long to
+            # wait beats sending them straight back to the same button, where
+            # they would burn more of the quota and fail again.
+            detail = f"{UNAVAILABLE_MESSAGE} Retry in about {exc.retry_after:.0f}s."
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=UNAVAILABLE_MESSAGE,
+            detail=detail,
         ) from exc
 
     try:

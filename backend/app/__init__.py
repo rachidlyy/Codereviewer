@@ -1,1 +1,1 @@
-"""CodeMentor AI backend application package."""
+"""CodeReviewer backend application package."""

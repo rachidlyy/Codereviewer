@@ -1,4 +1,4 @@
-"""FastAPI application entry point for CodeMentor AI.
+"""FastAPI application entry point for CodeReviewer.
 
 Run from the ``backend`` directory:
 
@@ -25,7 +25,7 @@ logging.basicConfig(
     level=logging.DEBUG if config.DEBUG else logging.INFO,
     format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
 )
-logger = logging.getLogger("codementor")
+logger = logging.getLogger("codereviewer")
 
 
 @asynccontextmanager
@@ -44,9 +44,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="CodeMentor AI API",
+    title="CodeReviewer API",
     description=(
-        "Backend for the CodeMentor AI MVP: problem catalogue, Python test "
+        "Backend for the CodeReviewer MVP: problem catalogue, Python test "
         "execution, and AI code review."
     ),
     version="0.1.0",
@@ -91,7 +91,7 @@ def health() -> HealthResponse:
 @app.get("/", include_in_schema=False)
 def root() -> dict[str, str]:
     return {
-        "service": "CodeMentor AI API",
+        "service": "CodeReviewer API",
         "docs": "/docs",
         "health": "/api/health",
     }
