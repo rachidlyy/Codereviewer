@@ -31,13 +31,12 @@ logger = logging.getLogger("codereviewer")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if config.llm_enabled():
-        logger.info(
-            "AI review: Gemini enabled (model=%s).", config.GEMINI_MODEL
-        )
+        logger.info("AI review: provider chain %s.", config.llm_model())
     else:
         logger.warning(
-            "AI review: GEMINI_API_KEY is not set - using the built-in "
-            "rule-based reviewer. Set the key in backend/.env to enable the LLM."
+            "AI review: neither GEMINI_API_KEY nor GROQ_API_KEY is set - using "
+            "the built-in rule-based reviewer. Set a key in backend/.env to "
+            "enable the LLM."
         )
     logger.info("Loaded %d problems.", len(problem_data.list_problems()))
     yield
@@ -83,7 +82,7 @@ def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         llm_configured=config.llm_enabled(),
-        llm_model=config.GEMINI_MODEL if config.llm_enabled() else None,
+        llm_model=config.llm_model(),
         problems=len(problem_data.list_problems()),
     )
 

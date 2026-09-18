@@ -24,7 +24,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -137,7 +137,7 @@ def build_prompt(problem: Problem, code: str, test_result: dict[str, Any]) -> st
 # --------------------------------------------------------------------------
 
 
-def _extract_text(data: dict[str, Any]) -> str:
+def _extract_gemini_text(data: dict[str, Any]) -> str:
     """Pull the text out of a Gemini generateContent response."""
     candidates = data.get("candidates") or []
     if not candidates:
@@ -150,6 +150,31 @@ def _extract_text(data: dict[str, Any]) -> str:
     if not text:
         finish = candidates[0].get("finishReason")
         raise ReviewUnavailable(f"Gemini returned an empty response (finishReason: {finish}).")
+    return text
+
+
+def _extract_openai_text(data: dict[str, Any]) -> str:
+    """Pull the text out of an OpenAI-compatible chat completion (Groq).
+
+    An OpenAI-shaped response can carry an ``error`` object while still
+    returning HTTP 200 - OpenRouter is documented doing this, and it is worth
+    guarding against generally. The error is therefore checked *before* the
+    choices list is touched, because otherwise ``choices[0]`` raises
+    IndexError and a provider hiccup looks like a bug in our own code.
+    """
+    error = data.get("error")
+    if error:
+        message = error.get("message") if isinstance(error, dict) else error
+        raise ReviewUnavailable(f"Groq reported an error inside a 200 response: {message}")
+
+    choices = data.get("choices") or []
+    if not choices:
+        raise ReviewUnavailable("Groq returned no choices.")
+
+    text = ((choices[0].get("message") or {}).get("content") or "").strip()
+    if not text:
+        finish = choices[0].get("finish_reason")
+        raise ReviewUnavailable(f"Groq returned an empty response (finish_reason: {finish}).")
     return text
 
 
@@ -211,25 +236,43 @@ def _backoff_delay(attempt: int) -> float:
     return min(config.LLM_RETRY_BACKOFF_SECONDS * (2**attempt), MAX_RETRY_DELAY_SECONDS)
 
 
-def _describe_http_error(response: httpx.Response) -> str:
+def _describe_http_error(response: httpx.Response, provider: str = "Gemini") -> str:
     """A one-line reason for a failed call, without a mid-sentence cut.
 
     The provider's ``error.message`` is the useful part - it names the quota
     and how long to wait. Blindly slicing the raw body truncates exactly that.
+    Both providers nest the message under ``error.message``; the value is
+    guarded because some APIs put a bare string there instead of an object.
     """
     message = ""
     try:
-        message = (response.json().get("error") or {}).get("message") or ""
+        error = response.json().get("error")
     except ValueError:
-        message = ""
-    message = " ".join(str(message).split()) or " ".join(response.text.split())
+        error = None
+    if isinstance(error, dict):
+        message = str(error.get("message") or "")
+    elif error:
+        message = str(error)
+    message = " ".join(message.split()) or " ".join(response.text.split())
     if len(message) > MAX_ERROR_MESSAGE_CHARS:
         message = message[: MAX_ERROR_MESSAGE_CHARS - 3] + "..."
-    return f"Gemini returned HTTP {response.status_code}: {message}"
+    return f"{provider} returned HTTP {response.status_code}: {message}"
 
 
-async def _call_llm(prompt: str) -> str:
-    """Send the prompt to Gemini, retrying transient failures.
+async def _request_with_retries(
+    prompt: str,
+    *,
+    provider: str,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    extract: Callable[[dict[str, Any]], str],
+) -> str:
+    """POST a prompt and return the extracted text, retrying transient failures.
+
+    Both providers share this loop so the retry policy is written once. They
+    differ only in URL, headers, payload shape, and how the text is pulled
+    back out of the response.
 
     Google's flash models intermittently answer with HTTP 503 "currently
     experiencing high demand", and the free tier allows only a handful of
@@ -241,19 +284,6 @@ async def _call_llm(prompt: str) -> str:
     second or two, so the wait the provider asks for is honoured when it is
     short, and the call fails fast when it is not.
     """
-    url = f"{config.GEMINI_API_URL}/models/{config.GEMINI_MODEL}:generateContent"
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": config.LLM_TEMPERATURE,
-            "responseMimeType": "application/json",
-        },
-    }
-    headers = {
-        "x-goog-api-key": config.GEMINI_API_KEY,
-        "Content-Type": "application/json",
-    }
-
     attempts = max(1, config.LLM_MAX_ATTEMPTS)
     last_reason = "unknown error"
 
@@ -269,26 +299,28 @@ async def _call_llm(prompt: str) -> str:
             last_reason = f"no response within {config.LLM_TIMEOUT_SECONDS:g}s"
             if is_last:
                 raise ReviewUnavailable(
-                    f"The model did not respond within {config.LLM_TIMEOUT_SECONDS:g}s."
+                    f"{provider} did not respond within {config.LLM_TIMEOUT_SECONDS:g}s."
                 ) from exc
-            logger.warning("Gemini timed out (attempt %d/%d), retrying.", attempt + 1, attempts)
+            logger.warning(
+                "%s timed out (attempt %d/%d), retrying.", provider, attempt + 1, attempts
+            )
         except httpx.HTTPError as exc:
             last_reason = f"could not reach the provider ({exc})"
             if is_last:
-                raise ReviewUnavailable(f"Could not reach the model provider: {exc}") from exc
+                raise ReviewUnavailable(f"Could not reach {provider}: {exc}") from exc
             logger.warning(
-                "Gemini unreachable (attempt %d/%d), retrying.", attempt + 1, attempts
+                "%s unreachable (attempt %d/%d), retrying.", provider, attempt + 1, attempts
             )
         else:
             if response.status_code < 400:
                 try:
-                    return _extract_text(response.json())
+                    return extract(response.json())
                 except ValueError as exc:
                     raise ReviewUnavailable(
-                        "Gemini returned a malformed response body."
+                        f"{provider} returned a malformed response body."
                     ) from exc
 
-            last_reason = _describe_http_error(response)
+            last_reason = _describe_http_error(response, provider)
 
             if response.status_code not in RETRYABLE_STATUSES:
                 # A real error - retrying will not help.
@@ -304,8 +336,9 @@ async def _call_llm(prompt: str) -> str:
                 # student than an honest failure, and the remaining attempts
                 # would be spent against a quota that has not reset yet.
                 logger.warning(
-                    "Gemini asked for a %.0fs wait (attempt %d/%d) - failing fast "
+                    "%s asked for a %.0fs wait (attempt %d/%d) - failing fast "
                     "instead of holding the request open.",
+                    provider,
                     advised,
                     attempt + 1,
                     attempts,
@@ -319,7 +352,8 @@ async def _call_llm(prompt: str) -> str:
                 delay = advised
 
             logger.warning(
-                "Gemini transient failure HTTP %s (attempt %d/%d), retrying in %.1fs.",
+                "%s transient failure HTTP %s (attempt %d/%d), retrying in %.1fs.",
+                provider,
                 response.status_code,
                 attempt + 1,
                 attempts,
@@ -328,7 +362,93 @@ async def _call_llm(prompt: str) -> str:
 
         await asyncio.sleep(delay)
 
-    raise ReviewUnavailable(f"Gemini was unavailable after {attempts} attempts ({last_reason}).")
+    raise ReviewUnavailable(
+        f"{provider} was unavailable after {attempts} attempts ({last_reason})."
+    )
+
+
+async def _call_gemini(prompt: str) -> str:
+    """Primary provider. Native Gemini REST ``generateContent``."""
+    return await _request_with_retries(
+        prompt,
+        provider="Gemini",
+        url=f"{config.GEMINI_API_URL}/models/{config.GEMINI_MODEL}:generateContent",
+        headers={
+            "x-goog-api-key": config.GEMINI_API_KEY,
+            "Content-Type": "application/json",
+        },
+        payload={
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": config.LLM_TEMPERATURE,
+                "responseMimeType": "application/json",
+            },
+        },
+        extract=_extract_gemini_text,
+    )
+
+
+async def _call_groq(prompt: str) -> str:
+    """Fallback provider. Groq's OpenAI-compatible chat completions."""
+    return await _request_with_retries(
+        prompt,
+        provider="Groq",
+        url=f"{config.GROQ_API_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {config.GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        payload={
+            "model": config.GROQ_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": config.LLM_TEMPERATURE,
+            "response_format": {"type": "json_object"},
+        },
+        extract=_extract_openai_text,
+    )
+
+
+async def _call_llm(prompt: str) -> tuple[str, str]:
+    """Return ``(raw_text, source)`` from the first provider that answers.
+
+    Gemini is tried first: its reviews are the stronger of the two, and the
+    demo's before/after score comparison only means something if both reviews
+    come from the same model. Groq is reached only once Gemini has already
+    exhausted its own retries, so in the normal case the fallback never fires
+    and the scores stay comparable.
+
+    Deliberately **not** an ``auto`` router that picks whichever provider is
+    cheapest per call. Silently switching models between calls would make the
+    scores drift for reasons that have nothing to do with the student's code.
+    """
+    errors: list[str] = []
+    retry_after: float | None = None
+
+    if config.GEMINI_API_KEY:
+        try:
+            return await _call_gemini(prompt), "gemini"
+        except ReviewUnavailable as exc:
+            errors.append(f"gemini: {exc}")
+            retry_after = exc.retry_after
+            logger.warning("Gemini unavailable (%s).", exc)
+    else:
+        errors.append("gemini: no API key configured")
+
+    if config.GROQ_API_KEY:
+        logger.info("Falling back to Groq (%s).", config.GROQ_MODEL)
+        try:
+            return await _call_groq(prompt), "groq"
+        except ReviewUnavailable as exc:
+            errors.append(f"groq: {exc}")
+            retry_after = retry_after or exc.retry_after
+            logger.warning("Groq fallback also unavailable (%s).", exc)
+    else:
+        errors.append("groq: no API key configured")
+
+    raise ReviewUnavailable(
+        "No provider could produce a review - " + "; ".join(errors),
+        retry_after=retry_after,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -784,11 +904,11 @@ async def review_submission(
         return heuristic_review(problem, code, test_result)
 
     prompt = build_prompt(problem, code, test_result)
-    raw = await _call_llm(prompt)
+    raw, source = await _call_llm(prompt)
     data = parse_review_json(raw)
     if not isinstance(data, dict):
         raise ReviewUnavailable("The model returned JSON that was not an object.")
-    return normalise_review(data, source="gemini")
+    return normalise_review(data, source=source)
 
 
 def validate_review(payload: dict[str, Any]) -> ReviewResponse:

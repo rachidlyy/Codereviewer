@@ -20,7 +20,7 @@ PROBLEM → CODE → RUN → TEST RESULTS → AI REVIEW → IMPROVEMENT
 |---|---|
 | Frontend | React + TypeScript + Vite, Monaco Editor, plain CSS |
 | Backend | Python + FastAPI + Uvicorn |
-| AI | Google Gemini (REST), behind a swappable service module |
+| AI | Google Gemini (REST) with a Groq fallback, behind a swappable service module |
 | Data | In-memory Python structures — **no database** |
 | Execution | Local Python subprocesses with per-test timeouts |
 
@@ -131,8 +131,11 @@ execution (including the `3/4` partial demo case), and the AI review. Exits
 non-zero if anything failed.
 
 ```
-  16 passed   0 failed   0 warnings
+  13 passed   0 failed   2 warnings
 ```
+
+(A healthy run with a working key reports more passes — the review section
+adds several. A `WARN` there is not a failure.)
 
 `--no-review` skips the review section — the only part that spends API quota.
 `--base-url` points it at a different port.
@@ -149,13 +152,20 @@ cd backend
 .venv/Scripts/python.exe scripts/check_retry_policy.py
 ```
 
-Replays real captured Gemini error bodies through the retry logic and asserts
-that a transient `503` backs off and retries, a `429` stating a long wait fails
-fast instead of hanging the request, and a `400` is never retried.
+Replays real captured Gemini and Groq error bodies through the retry logic and
+asserts that a transient `503` backs off and retries, a `429` stating a long wait
+fails fast instead of hanging the request, a `400` is never retried, and a
+Gemini failure reaches Groq while a Gemini *success* never touches it.
 
-> A `WARN` in the smoke test's review section is usually the Gemini free tier
-> rather than a bug: it allows 5 requests per minute and the flash models
-> intermittently return `503 high demand`. See `backend/.env.example`.
+```
+  37 passed   0 failed
+```
+
+> A `WARN` in the smoke test's review section is usually the provider rather
+> than a bug: the Gemini free tier allows 5 requests per minute, and the flash
+> models intermittently return `503 high demand` or time out. If Groq is
+> configured the fallback absorbs most of this, and the run reports
+> `source=groq` for the affected reviews. See `backend/.env.example`.
 
 ---
 

@@ -213,10 +213,11 @@ def main() -> int:
 
             body = resp.json()
             reviews[label] = body
+            source = body.get("source")
             record(
-                PASS if body.get("source") == "gemini" else WARN,
+                PASS if source in ("gemini", "groq") else WARN,
                 f"review {label}",
-                f"source={body.get('source')} overall={body.get('overall_score')} "
+                f"source={source} overall={body.get('overall_score')} "
                 f"eff={body.get('efficiency_score')} in {elapsed:.1f}s",
             )
             cx = body.get("complexity", {})
@@ -233,6 +234,15 @@ def main() -> int:
 
         if len(reviews) == 2:
             naive, optimal = reviews["naive O(n^2)"], reviews["optimal O(n)"]
+            # The before/after comparison only means something if one model
+            # produced both reviews. If Gemini dropped out mid-run and Groq
+            # picked up the second, the score gap is partly a model change.
+            sources = {naive.get("source"), optimal.get("source")}
+            record(
+                PASS if len(sources) == 1 else WARN,
+                "both reviews came from the same model",
+                f"sources={sorted(sources)}",
+            )
             record(
                 PASS if naive["overall_score"] < optimal["overall_score"] else FAIL,
                 "naive scores below optimal",

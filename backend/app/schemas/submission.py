@@ -12,7 +12,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 RunStatus = Literal["passed", "partial", "failed", "error", "timeout"]
-ReviewSource = Literal["gemini", "heuristic"]
+#: ``gemini`` is the primary reviewer, ``groq`` the fallback used when Gemini
+#: exhausts its retries, and ``heuristic`` the offline rule-based reviewer.
+ReviewSource = Literal["gemini", "groq", "heuristic"]
 
 
 # --- Problems -------------------------------------------------------------

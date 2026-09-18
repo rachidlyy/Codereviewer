@@ -88,8 +88,12 @@ export type Review = {
   hint: string;
   /** Revealed only when the student asks for it. */
   improved_approach: string;
-  /** `heuristic` means the LLM was not configured, so feedback is rule-based. */
-  source: 'gemini' | 'heuristic';
+  /**
+   * Which reviewer produced this. `gemini` is the primary model, `groq` the
+   * fallback used when Gemini is unavailable, and `heuristic` means no LLM was
+   * configured so the feedback is rule-based.
+   */
+  source: 'gemini' | 'groq' | 'heuristic';
 };
 
 /** The subset of a run result sent along with a review request. */

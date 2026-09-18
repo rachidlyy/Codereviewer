@@ -67,8 +67,31 @@ GEMINI_API_URL: str = os.getenv(
     "https://generativelanguage.googleapis.com/v1beta",
 ).rstrip("/")
 
+#: Groq API key - the fallback provider. Groq speaks the OpenAI chat
+#: completions shape, so a single ``_call_llm`` seam covers both providers.
+#:
+#: Groq is worth having as a fallback for three reasons over Gemini's free
+#: tier: 30 requests/minute instead of 5, it sends a real ``Retry-After``
+#: header (Gemini sends none - see ``_server_retry_delay``), and it does not
+#: suffer the intermittent 503 "high demand" spikes.
+GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip()
+
+#: Groq model used for the fallback review.
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+
+GROQ_API_URL: str = os.getenv(
+    "GROQ_API_URL",
+    "https://api.groq.com/openai/v1",
+).rstrip("/")
+
 #: Request timeout for the LLM call, in seconds.
-LLM_TIMEOUT_SECONDS: float = _get_float("LLM_TIMEOUT_SECONDS", 45.0)
+#:
+#: Kept well below the caller's patience because the provider is retried:
+#: the worst case is ``LLM_MAX_ATTEMPTS * (timeout + backoff)``. A healthy
+#: review answers in 2-4s, so 20s is already generous, and it bounds a stuck
+#: Gemini at roughly a minute before the Groq fallback takes over. At the
+#: previous 45s the student could wait over two minutes before failover.
+LLM_TIMEOUT_SECONDS: float = _get_float("LLM_TIMEOUT_SECONDS", 20.0)
 
 #: Sampling temperature for the LLM.
 LLM_TEMPERATURE: float = _get_float("LLM_TEMPERATURE", 0.25)
@@ -98,8 +121,21 @@ LLM_MAX_RETRY_WAIT_SECONDS: float = _get_float("LLM_MAX_RETRY_WAIT_SECONDS", 8.0
 
 
 def llm_enabled() -> bool:
-    """True when a real LLM call can be attempted."""
-    return bool(GEMINI_API_KEY)
+    """True when at least one provider has a key configured."""
+    return bool(GEMINI_API_KEY or GROQ_API_KEY)
+
+
+def llm_model() -> str | None:
+    """Description of the configured provider chain, or None if offline.
+
+    Shown by ``/api/health``. The arrow makes the fallback order explicit.
+    """
+    chain = []
+    if GEMINI_API_KEY:
+        chain.append(GEMINI_MODEL)
+    if GROQ_API_KEY:
+        chain.append(f"fallback: {GROQ_MODEL}")
+    return " -> ".join(chain) or None
 
 
 # --- Code execution -------------------------------------------------------
