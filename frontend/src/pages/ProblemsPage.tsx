@@ -90,7 +90,11 @@ export default function ProblemsPage({ problems, loading, error, onSelect, onRet
         <small>{loading ? 'Loading…' : `${filtered.length} problems`}</small>
       </div>
 
-      {loading && <div className="state-panel">Loading problems…</div>}
+      {loading && (
+        <div className="state-panel">
+          <span className="spinner" /> Loading problems…
+        </div>
+      )}
 
       {!loading && error && (
         <div className="state-panel state-error">

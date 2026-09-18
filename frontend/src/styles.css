@@ -51,3 +51,117 @@
 
 /* Stacked hint / improved-approach buttons */
 .complexity .hint-btn + .hint-btn{margin-top:8px}
+
+/* ---------------------------------------------------------------------------
+   UI polish pass (plan.md priority 6): spacing, typography, loading and error
+   states, responsive layout, review cards. Appended for the same reason as the
+   block above - the original stylesheet stays untouched and later rules win.
+   --------------------------------------------------------------------------- */
+
+/* --- typography ---------------------------------------------------------- */
+
+/* Fall back to the platform UI font rather than a generic sans-serif, so the
+   page still looks deliberate if the webfont request is slow or blocked. */
+:root{font-family:'DM Sans','Segoe UI',system-ui,-apple-system,sans-serif}
+
+/* Native scrollbars, carets and form controls follow the dark theme instead of
+   rendering as bright light-mode chrome against the dark page. */
+:root{color-scheme:dark}
+
+/* The eyebrow was a <p> on the list page but a <span> on the workspace, test
+   and review screens, so its 9px margin silently did nothing in three places
+   and the label collided with the heading underneath it. */
+.eyebrow{display:block}
+
+/* The search box cleared its outline without putting anything back. */
+button:focus-visible{outline:2px solid #5b8dff;outline-offset:2px}
+.search:focus-within{border-color:#3b5680;background:#101823}
+.search input:focus-visible{outline:none}
+
+/* Placeholder was inheriting full-strength text colour, so it read as typed
+   input rather than as a hint. */
+::placeholder{color:#5b6b81;opacity:1}
+
+/* --- interactive feedback ------------------------------------------------ */
+
+/* Only .problem-card had a hover state; every button was inert on hover. */
+.action-bar button,.hint-btn,.filters button,.back,.state-error .retry{transition:background .15s,border-color .15s,color .15s}
+.back:hover{color:#c2cdde}
+.filters button:hover{background:#131c2a;color:#a9b8cc}
+.run:hover:not(:disabled){background:#8fb6ff}
+.review-btn:hover:not(:disabled){background:#162030;border-color:#3b5680;color:#c3d7ff}
+.hint-btn:hover{background:#1b2941;border-color:#35507a}
+.state-error .retry:hover{background:#331f21;border-color:#6d4340}
+.action-bar button:active:not(:disabled){transform:translateY(1px)}
+
+/* --- loading states ------------------------------------------------------ */
+
+/* The problem list is the first thing the demo shows. Give it the same spinner
+   the run and review buttons use instead of a bare line of text. */
+.state-panel .spinner{width:15px;height:15px;flex:none}
+
+/* Starter-code fetch used to be faked by writing a Python comment into the
+   editor. Cover the editor with a real overlay instead, so the loading state
+   can never be mistaken for, or run as, the student's own code. */
+.editor-wrap{position:relative}
+.editor-loading{position:absolute;inset:0;display:flex;gap:10px;align-items:center;justify-content:center;background:#0d131d;color:#7d8ca1;font-size:12px}
+
+/* --- review cards -------------------------------------------------------- */
+
+/* A 3/10 and a 9/10 both rendered in the same blue, which hid the before/after
+   contrast the review exists to show. Three bands make a weak score read as
+   weak at a glance, per plan.md's "clear status indicators". */
+.score.tier-low strong,.score-card.tier-low>div:first-child b{color:#d88983}
+.score.tier-mid strong,.score-card.tier-mid>div:first-child b{color:#dfb878}
+.score.tier-high strong,.score-card.tier-high>div:first-child b{color:#7dd0a0}
+.score-card.tier-low .bar i{background:#d88983}
+.score-card.tier-mid .bar i{background:#dfb878}
+.score-card.tier-high .bar i{background:#7dd0a0}
+
+/* Issues read as warnings, suggestions as opportunities. A coloured edge makes
+   the two scannable without reading the body text. Inset so nothing reflows. */
+.issue{box-shadow:inset 3px 0 0 #7a5a2c}
+.suggestion{box-shadow:inset 3px 0 0 #2f5488}
+
+/* --- motion -------------------------------------------------------------- */
+
+/* The review panel replaces a large empty area. A short fade keeps that from
+   feeling like a jump cut; plan.md asks for restraint, so this is the only
+   added animation. */
+.review-panel{animation:panel-in .22s ease-out}
+@keyframes panel-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
+
+/* --- responsive ---------------------------------------------------------- */
+
+/* The list page kept its 58px desktop top padding on phones because the
+   original breakpoint only overrode .workspace. */
+@media(max-width:850px){
+  .problems-page{padding:35px 15px 60px}
+  .hero{padding-bottom:38px}
+  .review-panel{padding:18px}
+}
+
+/* Below ~640px the three score cards were each fighting for about 84px of
+   inner width, so the label and the x/10 value collided. Stack everything that
+   assumed it had a desktop-width row. */
+@media(max-width:640px){
+  header{padding:0 14px}
+  .header-right{gap:8px;font-size:11px}
+  .hero h1{font-size:30px;letter-spacing:-1px}
+  .section-title{display:block}
+  .section-title small{display:block;margin-top:6px}
+  .toolbar .filters{flex-wrap:wrap}
+  .workspace-head{display:block}
+  .workspace-head .difficulty{display:inline-block;margin-top:12px}
+  .score-grid{grid-template-columns:1fr;gap:8px}
+  .review-title{display:block}
+  .review-title .score{margin-top:14px}
+  .action-bar{flex-direction:column}
+  .action-bar button{width:100%;justify-content:center}
+  .failure-label{min-width:0}
+  .failure-detail .failure-row{display:block}
+}

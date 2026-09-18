@@ -71,7 +71,7 @@ export default function WorkspacePage({
       <div className="workspace-grid">
         <ProblemPanel problem={problem} />
         <EditorPanel
-          code={codeLoading ? '# Loading starter code…' : code}
+          code={code}
           onCodeChange={onCodeChange}
           onRun={onRun}
           onReview={onReview}
@@ -81,6 +81,7 @@ export default function WorkspacePage({
           result={result}
           stale={stale}
           reviewError={reviewError}
+          loading={codeLoading}
         />
       </div>
 

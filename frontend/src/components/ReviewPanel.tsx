@@ -7,9 +7,16 @@ type Props = {
   review: Review;
 };
 
+/** Three bands, so a weak score reads as weak without comparing the numbers. */
+function tier(value: number): string {
+  if (value <= 4) return 'tier-low';
+  if (value <= 7) return 'tier-mid';
+  return 'tier-high';
+}
+
 function Score({ label, value }: { label: string; value: number }) {
   return (
-    <div className="score-card">
+    <div className={'score-card ' + tier(value)}>
       <div>
         <span>{label}</span>
         <b>{value}/10</b>
@@ -44,7 +51,7 @@ export default function ReviewPanel({ review }: Props) {
             </p>
           )}
         </div>
-        <div className="score">
+        <div className={'score ' + tier(review.overall_score)}>
           <strong>{review.overall_score}</strong>
           <span>/ 10</span>
         </div>
