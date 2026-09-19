@@ -38,12 +38,9 @@ export default function TestResults({ result, stale }: Props) {
   return (
     <div className="results">
       <div className="result-head">
-        <div>
-          <span className="eyebrow">TEST RESULTS</span>
-          <h3>
-            {result.passed}/{result.total} tests passed
-          </h3>
-        </div>
+        <h3>
+          {result.passed}/{result.total} tests passed
+        </h3>
         <span className={'status ' + STATUS_LABEL[result.status]}>{STATUS_LABEL[result.status]}</span>
       </div>
 

@@ -42,17 +42,17 @@ export default function WorkspacePage({
 }: Props) {
   return (
     <main className="workspace">
-      <button className="back" onClick={onBack}>
-        <ArrowLeft size={16} /> All problems
-      </button>
+      <div className="workbench-bar">
+        <button className="back" onClick={onBack}>
+          <ArrowLeft size={16} /> All problems
+        </button>
+        <span className="workbench-meta">
+          {problem.category} · Problem {problem.id}
+        </span>
+      </div>
 
       <div className="workspace-head">
-        <div>
-          <p className="eyebrow">
-            {problem.category.toUpperCase()} / PROBLEM {problem.id}
-          </p>
-          <h1>{problem.title}</h1>
-        </div>
+        <h1>{problem.title}</h1>
         <span className={'difficulty ' + problem.difficulty.toLowerCase()}>
           {problem.difficulty}
         </span>
@@ -68,24 +68,29 @@ export default function WorkspacePage({
         </div>
       )}
 
+      {/* Workbench: a sticky brief rail beside one working column. The review
+          sits inside that column rather than below the whole grid, so
+          run -> test results -> review reads as a single downward flow instead
+          of three panels that happen to be on the same screen. */}
       <div className="workspace-grid">
         <ProblemPanel problem={problem} />
-        <EditorPanel
-          code={code}
-          onCodeChange={onCodeChange}
-          onRun={onRun}
-          onReview={onReview}
-          running={running}
-          reviewing={reviewing}
-          canReview={canReview}
-          result={result}
-          stale={stale}
-          reviewError={reviewError}
-          loading={codeLoading}
-        />
+        <div className="work-col">
+          <EditorPanel
+            code={code}
+            onCodeChange={onCodeChange}
+            onRun={onRun}
+            onReview={onReview}
+            running={running}
+            reviewing={reviewing}
+            canReview={canReview}
+            result={result}
+            stale={stale}
+            reviewError={reviewError}
+            loading={codeLoading}
+          />
+          {review && <ReviewPanel review={review} />}
+        </div>
       </div>
-
-      {review && <ReviewPanel review={review} />}
     </main>
   );
 }

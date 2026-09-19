@@ -17,15 +17,17 @@ export default function Header({ onHome, offlineReview = false }: Props) {
           Code<b>Reviewer</b>
         </span>
       </div>
-      <div className="header-right">
-        <span className="python-pill">● Python</span>
-        {offlineReview && (
+      {/* The "Python" pill and the "MVP Demo" chip were both removed. The
+          language is still stated in the editor header, so dropping the pill
+          loses no information. The offline badge stays: it is the only signal
+          that reviews are rule-based rather than model-generated. */}
+      {offlineReview && (
+        <div className="header-right">
           <span className="mvp offline-badge" title="No LLM key configured — reviews are rule-based">
             Offline review
           </span>
-        )}
-        <span className="mvp">MVP Demo</span>
-      </div>
+        </div>
+      )}
     </header>
   );
 }

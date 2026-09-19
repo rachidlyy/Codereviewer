@@ -38,7 +38,6 @@ export default function ReviewPanel({ review }: Props) {
     <section className="review-panel">
       <div className="review-title">
         <div>
-          <span className="eyebrow">AI CODE REVIEW</span>
           <h2>Feedback on your approach</h2>
           {review.source === 'heuristic' && (
             <p className="review-source">
