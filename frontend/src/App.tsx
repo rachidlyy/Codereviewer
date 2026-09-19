@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import BeamsBackground from './components/BeamsBackground';
 import Header from './components/Header';
 import ProblemsPage from './pages/ProblemsPage';
 import WorkspacePage from './pages/WorkspacePage';
@@ -159,35 +160,41 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header onHome={goHome} offlineReview={offlineReview} />
+      {/* Decorative only. Sits in its own fixed layer so it never affects
+          layout, and never receives a click. */}
+      <BeamsBackground intensity="subtle" />
 
-      {selected ? (
-        <WorkspacePage
-          problem={selected}
-          code={code}
-          onCodeChange={handleCodeChange}
-          onBack={goHome}
-          onRun={handleRun}
-          onReview={handleReview}
-          running={running}
-          reviewing={reviewing}
-          canReview={canReview}
-          result={lastRun?.result ?? null}
-          stale={stale}
-          review={review}
-          reviewError={reviewError}
-          codeLoading={codeLoading}
-          codeError={codeError}
-        />
-      ) : (
-        <ProblemsPage
-          problems={problems}
-          loading={loadingProblems}
-          error={problemsError}
-          onSelect={openProblem}
-          onRetry={loadProblems}
-        />
-      )}
+      <div className="app-content">
+        <Header onHome={goHome} offlineReview={offlineReview} />
+
+        {selected ? (
+          <WorkspacePage
+            problem={selected}
+            code={code}
+            onCodeChange={handleCodeChange}
+            onBack={goHome}
+            onRun={handleRun}
+            onReview={handleReview}
+            running={running}
+            reviewing={reviewing}
+            canReview={canReview}
+            result={lastRun?.result ?? null}
+            stale={stale}
+            review={review}
+            reviewError={reviewError}
+            codeLoading={codeLoading}
+            codeError={codeError}
+          />
+        ) : (
+          <ProblemsPage
+            problems={problems}
+            loading={loadingProblems}
+            error={problemsError}
+            onSelect={openProblem}
+            onRetry={loadProblems}
+          />
+        )}
+      </div>
     </div>
   );
 }

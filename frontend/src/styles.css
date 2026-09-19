@@ -165,3 +165,22 @@ button:focus-visible{outline:2px solid #5b8dff;outline-offset:2px}
   .failure-label{min-width:0}
   .failure-detail .failure-row{display:block}
 }
+
+/* ---------------------------------------------------------------------------
+   Beams background - see components/BeamsBackground.tsx.
+   Replaces the component's Tailwind classes. Fixed in its own layer so it
+   never participates in layout, and inert so it never swallows a click.
+   --------------------------------------------------------------------------- */
+
+.app{position:relative}
+.app-content{position:relative;z-index:1}
+
+.beams{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.beams-canvas{position:absolute;inset:0;display:block}
+
+/* Slow dark veil over the beams. The source component used a 50px
+   backdrop-filter here, which makes the compositor re-blur the entire viewport
+   every frame. The canvas is already blurred, so a plain opacity pulse gives
+   the same breathing effect for essentially nothing. */
+.beams-veil{position:absolute;inset:0;background:#090d14;opacity:.05;animation:beams-pulse 10s ease-in-out infinite}
+@keyframes beams-pulse{0%,100%{opacity:.05}50%{opacity:.15}}
