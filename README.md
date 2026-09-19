@@ -33,7 +33,7 @@ PROBLEM → CODE → RUN → TEST RESULTS → AI REVIEW → IMPROVEMENT
 ├── frontend/
 │   ├── src/
 │   │   ├── components/     # Header, ProblemCard, ProblemPanel, EditorPanel,
-│   │   │                   # TestResults, ReviewPanel
+│   │   │                   # TestResults, ReviewPanel, BeamsBackground
 │   │   ├── pages/          # ProblemsPage, WorkspacePage
 │   │   ├── services/       # api.ts — the only module that speaks HTTP
 │   │   ├── types/          # mirrors the backend Pydantic schemas
