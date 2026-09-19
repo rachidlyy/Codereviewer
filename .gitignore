@@ -25,3 +25,14 @@ Thumbs.db
 # Session notes and verification screenshots. Remove this entry if the team
 # wants to version .workbuddy-ai/ (e.g. shared project skills).
 .workbuddy-ai/
+
+# --- Design tooling (hallmark) --------------------------------------------
+# Tool artifacts, not project source. The design system that actually ships is
+# the :root token block inside frontend/src/styles.css - that is the live
+# source of truth. design.md and tokens.css are portable copies the skill
+# emits, and tokens.css duplicates the same values, so versioning it invites
+# the two copies to drift. .hallmark/ is the skill's run log.
+# Delete these lines if the team ever wants to version the design system.
+.hallmark/
+/design.md
+/tokens.css
