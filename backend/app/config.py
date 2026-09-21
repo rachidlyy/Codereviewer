@@ -152,6 +152,67 @@ SUBMISSION_TIMEOUT_SECONDS: float = _get_float("SUBMISSION_TIMEOUT_SECONDS", 20.
 PYTHON_EXECUTABLE: str = os.getenv("PYTHON_EXECUTABLE", "").strip()
 
 
+# --- Database -------------------------------------------------------------
+
+#: SQLAlchemy URL for the application database.
+#:
+#: Uses the psycopg (v3) driver, hence the ``+psycopg`` suffix - plain
+#: ``postgresql://`` would make SQLAlchemy reach for psycopg2, which is not
+#: installed. The password is not defaulted: there is no sensible guess, and
+#: a wrong default produces a confusing auth failure instead of an obvious
+#: "not configured" state.
+DATABASE_URL: str = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg://codereviewer@127.0.0.1:5432/codereviewer",
+).strip()
+
+#: Echo every SQL statement to the log. Very noisy - debugging only.
+DB_ECHO: bool = _get_bool("DB_ECHO", False)
+
+#: Size of the connection pool. Small on purpose: this is a single-user
+#: academic demo, not a service under load.
+DB_POOL_SIZE: int = _get_int("DB_POOL_SIZE", 5)
+
+
+def database_configured() -> bool:
+    """True when a database URL is present.
+
+    Phase 2 made the database load-bearing (sign-in is mandatory), so this
+    is reported by ``/api/health`` rather than used to silently degrade.
+    """
+    return bool(DATABASE_URL)
+
+
+# --- Auth (Clerk) ---------------------------------------------------------
+
+#: Clerk secret key (``sk_test_...`` for a development instance).
+#:
+#: Used by the backend *only* to verify session tokens. Clerk owns sign-up,
+#: sign-in and password storage, so there is no password hashing and no
+#: token signing anywhere in this codebase.
+CLERK_SECRET_KEY: str = os.getenv("CLERK_SECRET_KEY", "").strip()
+
+#: Comma-separated list of origins a session token may be used from.
+#:
+#: Clerk's verifier rejects a token whose ``azp`` claim is not in this list,
+#: which presents as a plain 401 even though the token itself is perfectly
+#: valid. Leaving this empty therefore breaks auth in a way that looks like
+#: a bad key, so it defaults to the Vite dev origin rather than to "".
+CLERK_AUTHORIZED_PARTIES: list[str] = [
+    origin.strip()
+    for origin in os.getenv(
+        "CLERK_AUTHORIZED_PARTIES",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
+
+def auth_configured() -> bool:
+    """True when Clerk is configured well enough to verify a token."""
+    return bool(CLERK_SECRET_KEY)
+
+
 # --- Server ---------------------------------------------------------------
 
 #: Comma-separated list of allowed CORS origins.
