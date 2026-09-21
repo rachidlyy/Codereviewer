@@ -831,6 +831,17 @@ header{
   font-weight:500;
   transition:background var(--dur-short) var(--ease-out),border-color var(--dur-short) var(--ease-out);
 }
+/* Header sits full-width above main; inner content is centered and capped. */
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  max-width: var(--measure);       /* 1200px, same as .problems-page */
+  margin: 0 auto;
+  padding: 0 var(--space-md);      /* matches .problems-page padding-inline */
+  height: 100%;                    /* fills the 68px header */
+}
 .hint-btn:hover{background:var(--color-paper-3);border-color:var(--color-accent-muted)}
 .hint-btn+.hint-btn{margin-top:var(--space-2xs)}
 .hint-text{font-size:var(--text-xs);line-height:1.6;color:var(--color-ink-2)}
@@ -891,4 +902,281 @@ header{
   .action-bar button{width:100%;justify-content:center}
   .failure-label{min-width:0}
   .failure-detail .failure-row{display:block}
+}
+/* ===========================================================================
+   Header nav — About / Progress / Sign in
+   ---------------------------------------------------------------------------
+   Appended so earlier .header-right rules stay intact and these win. Mirrors
+   the design tokens defined in the Hallmark redesign block above.
+   =========================================================================== */
+
+/* Right-hand group of the header: logo sits left, this sits right. */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+/* Base link style for About / Progress / Sign in. */
+.nav-link {
+  position: relative;
+  color: var(--color-ink-2);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 6px 2px;
+  transition:
+    color var(--dur-short) var(--ease-out),
+    transform var(--dur-short) var(--ease-out);
+}
+
+.nav-link:hover {
+  color: var(--color-ink);
+  transform: translateY(-1px);
+}
+
+/* Gradient underline that draws in from the left on hover. */
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--color-accent), oklch(72% 0.14 200));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
+}
+
+/* Soft radial glow behind the link on hover. */
+.nav-link::before {
+  content: "";
+  position: absolute;
+  inset: -6px -10px;
+  border-radius: var(--radius-input);
+  background: radial-gradient(
+    circle at center,
+    color-mix(in oklch, var(--color-accent) 22%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-short) var(--ease-out);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.nav-link:hover::before {
+  opacity: 1;
+}
+
+/* Sign in reads as the primary action: pill with a border, no underline. */
+.nav-link-signin {
+  padding: 7px 14px;
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-input);
+  color: var(--color-ink);
+}
+
+.nav-link-signin::after {
+  display: none; /* border replaces the underline as the affordance */
+}
+
+.nav-link-signin:hover {
+  background: var(--color-paper-3);
+  border-color: var(--color-accent-muted);
+  transform: none;
+}
+
+/* Make <button class="cta"> render exactly like <a class="cta">.
+   Browsers give buttons their own UA background, border and font metrics,
+   which is why the disabled Create account button looked different. */
+button.cta {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  font: inherit;
+  line-height: 1;
+}
+
+.cta.cta-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cta.cta-disabled:hover {
+  opacity: 0.62;
+}
+
+/* Small screens: keep all three links plus the offline badge on one row. */
+@media (max-width: 640px) {
+  .header-right {
+    gap: var(--space-xs);
+  }
+  .nav-link {
+    font-size: var(--text-xs);
+    padding: 5px 2px;
+  }
+  .nav-link-signin {
+    padding: 6px 10px;
+  }
+  .nav-link::before {
+    inset: -4px -6px;
+  }
+}
+/* ===========================================================================
+   Header nav — About / Progress / Sign in / Create account
+   =========================================================================== */
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+/* Applies to <a> AND <button> so all four links look identical. */
+.nav-link {
+  position: relative;
+  color: var(--color-ink-2);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 6px 2px;
+  cursor: pointer;
+  transition:
+    color var(--dur-short) var(--ease-out),
+    transform var(--dur-short) var(--ease-out);
+}
+
+.nav-link:hover {
+  color: var(--color-ink);
+  transform: translateY(-1px);
+}
+
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--color-accent), oklch(72% 0.14 200));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
+}
+
+.nav-link::before {
+  content: "";
+  position: absolute;
+  inset: -6px -10px;
+  border-radius: var(--radius-input);
+  background: radial-gradient(
+    circle at center,
+    color-mix(in oklch, var(--color-accent) 22%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-short) var(--ease-out);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.nav-link:hover::before {
+  opacity: 1;
+}
+
+/* === Auth page (LoginPage / SignUpPage) ================================ */
+
+.auth-page {
+  min-height: calc(100vh - var(--header-h));
+  min-height: calc(100svh - var(--header-h));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl) var(--space-md);
+  position: relative;
+}
+
+.auth-back {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  background: none;
+  border: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  padding: 0;
+  cursor: pointer;
+  transition: color var(--dur-short) var(--ease-out);
+}
+.auth-back:hover { color: var(--color-ink); }
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  border: var(--rule-hair) solid var(--color-rule);
+  background: var(--color-paper-2);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+}
+
+.auth-head { margin-bottom: var(--space-md); }
+.auth-head h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-2xs);
+  color: var(--color-ink);
+}
+
+.auth-head p {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  margin: 0;
+}
+.auth-clerk { margin-top: var(--space-md); }
+
+.auth-alt {
+  margin: var(--space-md) 0 0;
+  padding-top: var(--space-md);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+  text-align: center;
+}
+
+.auth-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.auth-link:hover { color: var(--color-accent-hover); }
+
+/* Small screens */
+@media (max-width: 640px) {
+  .header-right { gap: var(--space-xs); }
+  .nav-link { font-size: var(--text-xs); padding: 5px 2px; }
+  .nav-link::before { inset: -4px -6px; }
+  .auth-back { position: static; margin-bottom: var(--space-md); }
+  .auth-page { justify-content: flex-start; padding-top: var(--space-lg); }
 }

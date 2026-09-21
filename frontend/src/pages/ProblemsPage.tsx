@@ -10,6 +10,7 @@ type Props = {
   error: string | null;
   onSelect: (problem: ProblemSummary) => void;
   onRetry: () => void;
+  onSignUp: () => void;   // ← new
 };
 
 /** The four stages of the loop the whole product is built around. This is the
@@ -43,7 +44,14 @@ const SAMPLE_SCORES = [
   { label: 'Efficiency', value: 7 },
 ];
 
-export default function ProblemsPage({ problems, loading, error, onSelect, onRetry }: Props) {
+export default function ProblemsPage({
+  problems,
+  loading,
+  error,
+  onSelect,
+  onRetry,
+  onSignUp,
+}: Props) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All');
 
@@ -68,7 +76,10 @@ export default function ProblemsPage({ problems, loading, error, onSelect, onRet
     <main className="problems-page">
       {/* Hero. Sized to complete inside the first viewport: headline,
           supporting line, CTA and proof panel all sit above the fold. */}
+     
       <section className="hero">
+     
+
         <h1>
           Sharpen your code.
           <br />
@@ -83,6 +94,9 @@ export default function ProblemsPage({ problems, loading, error, onSelect, onRet
             Browse problems
           </a>
           <span className="cta-note">No account, no setup — pick one and run it.</span>
+<button className="cta" type="button" onClick={onSignUp}>
+  Create account
+</button>
         </div>
 
         <figure className="hero-proof">

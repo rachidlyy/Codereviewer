@@ -1,12 +1,19 @@
 import { Code2 } from 'lucide-react';
+import { Show, UserButton } from '@clerk/react';
 
 type Props = {
   onHome: () => void;
-  /** Shows a small badge when the backend is running without an LLM key. */
   offlineReview?: boolean;
+  onSignIn: () => void;
+  onSignUp: () => void;
 };
 
-export default function Header({ onHome, offlineReview = false }: Props) {
+export default function Header({
+  onHome,
+  offlineReview = false,
+  onSignIn,
+  onSignUp,
+}: Props) {
   return (
     <header>
       <div className="brand" onClick={onHome}>
@@ -17,17 +24,37 @@ export default function Header({ onHome, offlineReview = false }: Props) {
           Code<b>Reviewer</b>
         </span>
       </div>
-      {/* The "Python" pill and the "MVP Demo" chip were both removed. The
-          language is still stated in the editor header, so dropping the pill
-          loses no information. The offline badge stays: it is the only signal
-          that reviews are rule-based rather than model-generated. */}
-      {offlineReview && (
-        <div className="header-right">
-          <span className="mvp offline-badge" title="No LLM key configured — reviews are rule-based">
+
+      <nav className="header-right">
+        <a className="nav-link" href="#about">About</a>
+        <a className="nav-link" href="#progress">Progress</a>
+
+        <Show when="signed-out">
+          <button type="button" className="nav-link" onClick={onSignIn}>
+            Sign in
+          </button>
+          <button
+            type="button"
+            className="nav-link nav-link-signin"
+            onClick={onSignUp}
+          >
+            Create account
+          </button>
+        </Show>
+
+        <Show when="signed-in">
+          <UserButton />
+        </Show>
+
+        {offlineReview && (
+          <span
+            className="mvp offline-badge"
+            title="No LLM key configured — reviews are rule-based"
+          >
             Offline review
           </span>
-        </div>
-      )}
+        )}
+      </nav>
     </header>
   );
 }

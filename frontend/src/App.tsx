@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 
 import BeamsBackground from './components/BeamsBackground';
 import Header from './components/Header';
+import LoginPage from './pages/LoginPage';
 import ProblemsPage from './pages/ProblemsPage';
+import SignUpPage from './pages/SignUpPage';
 import WorkspacePage from './pages/WorkspacePage';
 import {
   ApiError,
@@ -14,6 +16,8 @@ import {
   toTestResultSummary,
 } from './services/api';
 import type { ProblemSummary, Review, RunResult } from './types';
+
+type View = 'problems' | 'workspace' | 'login' | 'signup';
 
 /** Turn anything thrown by the API layer into a message we can display. */
 function messageOf(error: unknown): string {
@@ -41,6 +45,9 @@ function runFailure(message: string): RunResult {
 }
 
 export default function App() {
+  // --- view routing -----------------------------------------------------
+  const [view, setView] = useState<View>('problems');
+
   // --- problem catalogue ------------------------------------------------
   const [problems, setProblems] = useState<ProblemSummary[]>([]);
   const [loadingProblems, setLoadingProblems] = useState(true);
@@ -85,8 +92,7 @@ export default function App() {
   }, []);
 
   const openProblem = useCallback(async (problem: ProblemSummary) => {
-    // Switch screens immediately using the list data, then fetch the starter
-    // code in the background so the transition feels instant.
+    setView('workspace');
     setSelected(problem);
     setCode('');
     setCodeError(null);
@@ -106,12 +112,16 @@ export default function App() {
   }, []);
 
   const goHome = useCallback(() => {
+    setView('problems');
     setSelected(null);
     setLastRun(null);
     setReview(null);
     setReviewError(null);
     setCodeError(null);
   }, []);
+
+  const goToSignIn = useCallback(() => setView('login'), []);
+  const goToSignUp = useCallback(() => setView('signup'), []);
 
   const handleCodeChange = useCallback((value: string) => {
     setCode(value);
@@ -140,8 +150,6 @@ export default function App() {
     setReviewing(true);
     setReviewError(null);
     try {
-      // Review the code that was actually executed, so the feedback and the
-      // test results can never disagree.
       const result = await requestReview(
         selected.id,
         lastRun.code,
@@ -160,14 +168,27 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Decorative only. Sits in its own fixed layer so it never affects
-          layout, and never receives a click. */}
       <BeamsBackground intensity="subtle" />
 
       <div className="app-content">
-        <Header onHome={goHome} offlineReview={offlineReview} />
+        <Header
+          onHome={goHome}
+          offlineReview={offlineReview}
+          onSignIn={goToSignIn}
+          onSignUp={goToSignUp}
+        />
 
-        {selected ? (
+        {view === 'login' ? (
+          <LoginPage
+            onBack={goHome}
+            onSwitchToSignUp={goToSignUp}
+          />
+        ) : view === 'signup' ? (
+          <SignUpPage
+            onBack={goHome}
+            onSwitchToSignIn={goToSignIn}
+          />
+        ) : selected ? (
           <WorkspacePage
             problem={selected}
             code={code}
@@ -192,6 +213,7 @@ export default function App() {
             error={problemsError}
             onSelect={openProblem}
             onRetry={loadProblems}
+            onSignUp={goToSignUp}
           />
         )}
       </div>
