@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from app import config
 from app.data import problems as problem_data
 from app.db import check_database
-from app.routes import auth, problems, progress, reviews, submissions
+from app.routes import auth, problems, progress, reviews, saved_code, submissions
 from app.schemas.submission import HealthResponse
 
 logging.basicConfig(
@@ -101,6 +101,7 @@ app.include_router(problems.router)
 app.include_router(submissions.router)
 app.include_router(reviews.router)
 app.include_router(progress.router)
+app.include_router(saved_code.router)
 
 
 @app.exception_handler(Exception)

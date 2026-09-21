@@ -1,10 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import WorkspacePage from './WorkspacePage';
-import { fetchProblem, requestReview, runCode, toTestResultSummary } from '../services/api';
+import {
+  fetchProblem,
+  fetchSavedCode,
+  requestReview,
+  runCode,
+  saveCode,
+  toTestResultSummary,
+} from '../services/api';
 import { messageOf } from '../services/errors';
-import type { ProblemSummary, Review, RunResult } from '../types';
+import type { ProblemSummary, Review, RunResult, SaveState } from '../types';
+
+/**
+ * How long typing must pause before the draft is written.
+ *
+ * Long enough that a normal burst of typing produces one request instead of
+ * dozens, short enough that the "Draft saved" note appears while the student
+ * is still looking at the screen.
+ */
+const SAVE_DEBOUNCE_MS = 900;
 
 /** A synthetic run result used when the request itself failed. */
 function runFailure(message: string): RunResult {
@@ -51,6 +67,11 @@ export default function WorkspaceRoute() {
   const [codeLoading, setCodeLoading] = useState(true);
   const [codeError, setCodeError] = useState<string | null>(null);
 
+  // Auto-saved draft. `lastSaved` is what the server already has, which is how
+  // we avoid writing a row for a problem the student only opened.
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [lastSaved, setLastSaved] = useState('');
+
   const [lastRun, setLastRun] = useState<{ code: string; result: RunResult } | null>(null);
   const [running, setRunning] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
@@ -75,13 +96,24 @@ export default function WorkspaceRoute() {
     setLastRun(null);
     setReview(null);
     setReviewError(null);
+    setSaveState('idle');
+    setLastSaved('');
 
-    fetchProblem(id)
-      .then((detail) => {
+    Promise.all([
+      fetchProblem(id),
+      // A draft is a convenience, never a prerequisite: if this one fails the
+      // student still gets the starter code and can work normally.
+      fetchSavedCode(id).catch(() => null),
+    ])
+      .then(([detail, draft]) => {
         if (cancelled) return;
         // Also fills in the heading on a cold load, where nav state is absent.
         setProblem(detail);
-        setCode(detail.starter);
+        const initial = draft?.code ?? detail.starter;
+        setCode(initial);
+        // Whatever we loaded counts as already saved, so simply opening a
+        // problem never writes a row.
+        setLastSaved(initial);
       })
       .catch((err) => {
         if (!cancelled) setCodeError(messageOf(err));
@@ -94,6 +126,50 @@ export default function WorkspaceRoute() {
       cancelled = true;
     };
   }, [id, validId]);
+
+  // Mirrors of the live values, so the unmount flush below can read them
+  // without the effect that owns the debounce timer being rebuilt on every
+  // keystroke.
+  const flush = useRef({ id, code, lastSaved });
+  useEffect(() => {
+    flush.current = { id, code, lastSaved };
+  }, [id, code, lastSaved]);
+
+  // The debounce effect clears its timer whenever it re-runs, which includes
+  // unmounting - so leaving the workspace would silently drop the last edit.
+  // Navigating away inside the app is the common case, so flush it here.
+  //
+  // Closing the tab outright still risks one debounce interval: the request
+  // needs a Bearer header and sendBeacon cannot set one, so there is no
+  // reliable unload hook to use instead.
+  useEffect(() => {
+    return () => {
+      const { id: pendingId, code: pending, lastSaved: saved } = flush.current;
+      if (pending && pending !== saved) {
+        // Fire and forget: the component is gone, so there is nobody left to
+        // tell if this fails.
+        void saveCode(pendingId, pending).catch(() => undefined);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    // Nothing to save until the problem has loaded, and never write the
+    // untouched starter code.
+    if (!validId || codeLoading || !code || code === lastSaved) return;
+
+    const timer = setTimeout(() => {
+      setSaveState('saving');
+      saveCode(id, code)
+        .then(() => {
+          setLastSaved(code);
+          setSaveState('saved');
+        })
+        .catch(() => setSaveState('error'));
+    }, SAVE_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [id, validId, code, codeLoading, lastSaved]);
 
   const handleCodeChange = useCallback((value: string) => {
     setCode(value);
@@ -170,6 +246,7 @@ export default function WorkspaceRoute() {
       reviewError={reviewError}
       codeLoading={codeLoading}
       codeError={codeError}
+      saveState={saveState}
     />
   );
 }

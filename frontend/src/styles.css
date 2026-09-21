@@ -1287,3 +1287,24 @@ header{
   .nav::-webkit-scrollbar{display:none}
   .nav a{font-size:var(--text-sm);white-space:nowrap}
 }
+
+/* ==========================================================================
+   Phase 2 · saved code (2026-09-22)
+   ========================================================================== */
+
+/* Wraps the save chip and the language label so the header keeps exactly two
+   children. `.editor-head` is a flex row with `justify-content:space-between`,
+   which would otherwise spread three items across the bar. */
+.editor-head-meta{display:flex;align-items:center;gap:var(--space-sm)}
+
+.save-state{
+  /* `.editor-head` is monospace, but this is prose rather than code, so it
+     reads better in the body face. */
+  font-family:var(--font-body);
+  font-size:var(--text-xs);
+  color:var(--color-ink-3);
+}
+.save-state.saved{color:var(--color-ok)}
+/* A failed save is the one state worth noticing: the code is still in the
+   editor, but it is not on the server. */
+.save-state.error{color:var(--color-bad)}

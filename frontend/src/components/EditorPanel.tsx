@@ -2,7 +2,7 @@ import Editor from '@monaco-editor/react';
 import { CircleAlert, Play, Sparkles } from 'lucide-react';
 
 import TestResults from './TestResults';
-import type { RunResult } from '../types';
+import type { RunResult, SaveState } from '../types';
 
 type Props = {
   code: string;
@@ -18,6 +18,15 @@ type Props = {
   reviewError: string | null;
   /** The starter code is still being fetched. */
   loading: boolean;
+  /** Auto-save status of the draft. `idle` renders nothing. */
+  saveState: SaveState;
+};
+
+/** Wording for the auto-save chip. `idle` is deliberately absent: it shows nothing. */
+const SAVE_LABEL: Record<Exclude<SaveState, 'idle'>, string> = {
+  saving: 'Saving…',
+  saved: 'Draft saved',
+  error: 'Draft not saved',
 };
 
 export default function EditorPanel({
@@ -32,6 +41,7 @@ export default function EditorPanel({
   stale,
   reviewError,
   loading,
+  saveState,
 }: Props) {
   // A disabled button gives no reason for being disabled, and "run your code
   // first" is the one rule of this screen that isn't obvious from the layout.
@@ -49,7 +59,14 @@ export default function EditorPanel({
         <span>
           <span className="dot" /> main.py
         </span>
-        <span>Python 3</span>
+        <span className="editor-head-meta">
+          {/* Auto-save status. Rendered only when there is something to say,
+              so the chip never holds empty space while nothing is happening. */}
+          {saveState !== 'idle' && (
+            <span className={'save-state ' + saveState}>{SAVE_LABEL[saveState]}</span>
+          )}
+          <span>Python 3</span>
+        </span>
       </div>
 
       <div className="editor-wrap">

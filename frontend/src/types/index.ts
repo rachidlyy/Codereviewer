@@ -192,3 +192,23 @@ export type Progress = {
   /** Covers the whole catalogue, not only the attempted problems. */
   problems: ProblemProgress[];
 };
+
+/**
+ * Shape returned by the saved-draft endpoints.
+ *
+ * `code` is null when this problem has never been saved, which is the normal
+ * starting state rather than an error — so callers must not treat it as one.
+ */
+export type SavedCode = {
+  problem_id: number;
+  code: string | null;
+  updated_at: string | null;
+};
+
+/**
+ * Auto-save status shown beside the editor.
+ *
+ * `idle` means there is nothing worth reporting: either nothing has been typed
+ * since the draft was loaded, or the last write is already accounted for.
+ */
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error';

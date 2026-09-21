@@ -12,6 +12,8 @@
  *   fetchSubmissions() -> GET  /api/submissions
  *   fetchSubmission()  -> GET  /api/submissions/{id}
  *   fetchProgress()    -> GET  /api/progress
+ *   fetchSavedCode()   -> GET  /api/saved-code/{id}
+ *   saveCode()         -> PUT  /api/saved-code/{id}
  *   fetchHealth()      -> GET  /api/health
  *   fetchMe()          -> GET  /api/auth/me
  *
@@ -27,6 +29,7 @@ import type {
   Progress,
   Review,
   RunResult,
+  SavedCode,
   SubmissionDetail,
   SubmissionSummary,
   TestResultSummary,
@@ -151,6 +154,26 @@ export function fetchSubmission(submissionId: number): Promise<SubmissionDetail>
 /** Per-problem progress across the whole catalogue, plus overall counts. */
 export function fetchProgress(): Promise<Progress> {
   return request<Progress>('/api/progress');
+}
+
+/**
+ * The student's saved draft for a problem.
+ *
+ * `code` comes back null when nothing has been saved, which is where every
+ * problem starts. A draft is a convenience rather than a prerequisite, so
+ * callers should treat a failure here as "no draft" and carry on with the
+ * starter code rather than blocking the workspace.
+ */
+export function fetchSavedCode(problemId: number): Promise<SavedCode> {
+  return request<SavedCode>(`/api/saved-code/${problemId}`);
+}
+
+/** Replace the saved draft for a problem. One row per user and problem. */
+export function saveCode(problemId: number, code: string): Promise<SavedCode> {
+  return request<SavedCode>(`/api/saved-code/${problemId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ code }),
+  });
 }
 
 export function fetchHealth(): Promise<Health> {
