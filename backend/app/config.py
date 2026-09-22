@@ -9,6 +9,7 @@ key is missing.
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -150,6 +151,115 @@ SUBMISSION_TIMEOUT_SECONDS: float = _get_float("SUBMISSION_TIMEOUT_SECONDS", 20.
 #: Python interpreter used to execute student code. Defaults to the
 #: interpreter running the API server.
 PYTHON_EXECUTABLE: str = os.getenv("PYTHON_EXECUTABLE", "").strip()
+
+
+# --- Execution sandbox (plan phase 2) -------------------------------------
+#
+# Student code runs in a hardened, network-less container. The host subprocess
+# runner is kept behind ``RUNNER_BACKEND=subprocess`` as the escape hatch: this
+# is a local demo, Docker Desktop on Windows is the least reliable component in
+# the stack, and a demo that cannot run at all is worse than one without a
+# sandbox.
+
+#: ``docker`` (default) or ``subprocess``.
+#:
+#: Defaults to ``docker`` rather than falling back automatically. A silent
+#: downgrade from a sandbox to no sandbox is a security-relevant change that
+#: nobody would notice, so the choice is explicit and a failure is loud.
+RUNNER_BACKEND: str = os.getenv("RUNNER_BACKEND", "docker").strip().lower()
+
+#: Image used for Python submissions. Build it with:
+#:   docker build -f docker/runner-python/Dockerfile -t codereviewer-runner-python .
+RUNNER_IMAGE: str = os.getenv("RUNNER_IMAGE", "codereviewer-runner-python").strip()
+
+#: One image per language, because a submission picks its language and a single
+#: shared image would have to carry every toolchain at once - 3-5 GB for four
+#: languages, on a machine whose C: drive has hit 0 bytes free twice.
+#:
+#: ``RUNNER_IMAGE`` is honoured as the Python entry's default so an existing
+#: ``.env`` override keeps working; the per-language variables win over it.
+RUNNER_IMAGES: dict[str, str] = {
+    "python": os.getenv("RUNNER_IMAGE_PYTHON", RUNNER_IMAGE).strip(),
+    "javascript": os.getenv("RUNNER_IMAGE_NODE", "codereviewer-runner-node").strip(),
+}
+
+#: Node interpreter used when ``RUNNER_BACKEND=subprocess``. Empty means "find
+#: ``node`` on PATH", which is what the demo machine needs; an explicit path is
+#: for a machine where the managed Node is not on the API server's PATH.
+NODE_EXECUTABLE: str = os.getenv("NODE_EXECUTABLE", "").strip()
+
+
+def runner_image(language: str) -> str:
+    """The sandbox image for a language, falling back to Python's."""
+    return RUNNER_IMAGES.get(language, RUNNER_IMAGE)
+
+#: Hard memory ceiling per submission. A submission that tries to exceed it is
+#: killed by the kernel inside the container rather than swapping the host.
+RUNNER_MEMORY_LIMIT: str = os.getenv("RUNNER_MEMORY_LIMIT", "512m").strip()
+
+#: CPU quota. One core keeps a busy loop from starving the API server.
+RUNNER_CPUS: str = os.getenv("RUNNER_CPUS", "1").strip()
+
+#: Process ceiling, so a fork bomb cannot exhaust the host's process table.
+RUNNER_PIDS_LIMIT: int = _get_int("RUNNER_PIDS_LIMIT", 128)
+
+#: Size of the one writable mount inside the container.
+#:
+#: On a machine where C: has reached 0 bytes free, an unbounded write is not a
+#: hypothetical failure - it has already broken tooling twice.
+RUNNER_TMPFS_SIZE: str = os.getenv("RUNNER_TMPFS_SIZE", "128m").strip()
+
+#: Docker CLI. Override when it is not on PATH.
+DOCKER_BINARY: str = os.getenv("DOCKER_BINARY", "docker").strip()
+
+#: Extra seconds allowed on top of ``SUBMISSION_TIMEOUT_SECONDS`` for the
+#: container itself to start and be torn down.
+#:
+#: The per-case limits are enforced *inside* the container, so this is only a
+#: backstop against the container hanging outright - it should never be the
+#: thing that ends a normal run.
+DOCKER_STARTUP_GRACE_SECONDS: float = _get_float("DOCKER_STARTUP_GRACE_SECONDS", 15.0)
+
+
+def runner_backend() -> str:
+    """The configured backend, normalised and validated.
+
+    An unrecognised value falls back to ``docker`` and is reported by
+    ``/api/health`` rather than silently changing behaviour.
+    """
+    return RUNNER_BACKEND if RUNNER_BACKEND in {"docker", "subprocess"} else "docker"
+
+
+def check_docker() -> tuple[bool, str | None]:
+    """Is the Docker daemon reachable? Returns ``(ok, error_message)``.
+
+    Mirrors ``db.check_database``: report, do not raise. Called by
+    ``/api/health``, never on the hot path of a run - a failed ``docker run``
+    already produces a good enough error, and probing before every submission
+    would add a second of latency to every demo click.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [DOCKER_BINARY, "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False, f"the '{DOCKER_BINARY}' command was not found on PATH"
+    except subprocess.TimeoutExpired:
+        return False, "docker did not answer within 10s"
+    except OSError as exc:
+        return False, f"could not run '{DOCKER_BINARY}': {exc}"
+
+    if completed.returncode != 0:
+        detail = " ".join((completed.stderr or completed.stdout or "").split())
+        return False, detail[:400] or f"docker exited with {completed.returncode}"
+
+    return True, None
 
 
 # --- Database -------------------------------------------------------------

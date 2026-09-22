@@ -34,7 +34,7 @@ from app.schemas.submission import (
     SubmissionDetail,
     SubmissionSummary,
 )
-from app.services.code_runner import SUPPORTED_LANGUAGES, run_submission
+from app.services.code_runner import UnsupportedLanguage, resolve_language, run_submission
 
 logger = logging.getLogger(__name__)
 
@@ -111,17 +111,19 @@ def run_code(
             detail=f"No problem with id {request.problem_id}.",
         )
 
-    language = (request.language or "python").strip().lower()
-    if language not in SUPPORTED_LANGUAGES:
+    # Validation lives with the runner, which is the only thing that knows
+    # what it can execute; the route just translates the refusal into HTTP.
+    # Two distinct refusals are possible: a language the runner cannot run at
+    # all, and one it can run but this problem does not offer.
+    try:
+        language = resolve_language(problem, request.language)
+    except UnsupportedLanguage as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Unsupported language '{request.language}'. "
-                "This MVP supports Python only."
-            ),
-        )
+            detail=str(exc),
+        ) from exc
 
-    result = run_submission(problem, request.code)
+    result = run_submission(problem, request.code, language)
 
     # Persist, but never at the cost of the run itself. Execution is the whole
     # point of this endpoint and history is only a record *of* it, so a failed

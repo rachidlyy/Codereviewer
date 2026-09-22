@@ -24,12 +24,27 @@ export type ProblemSummary = {
 };
 
 /**
- * Shape returned by `GET /api/problems/{id}`. Adds the starter code the
- * editor is seeded with and the function name the runner calls.
+ * How one problem is attempted in one language.
+ *
+ * `entrypoint` is the function the harness calls, `params`/`returns` are the
+ * declared signature, and `starter` seeds the editor.
+ */
+export type LanguageSpec = {
+  entrypoint: string;
+  params: string[];
+  returns: string;
+  starter: string;
+};
+
+/**
+ * Shape returned by `GET /api/problems/{id}`.
+ *
+ * `languages` is a map rather than a flat `starter`/`entrypoint` pair because
+ * a problem can be attempted in more than one language. A language absent
+ * from the map is one this problem cannot be attempted in.
  */
 export type Problem = ProblemSummary & {
-  starter: string;
-  entrypoint: string;
+  languages: Record<string, LanguageSpec>;
 };
 
 export type RunStatus = 'passed' | 'partial' | 'failed' | 'error' | 'timeout';
@@ -40,8 +55,58 @@ export type TestCaseResult = {
   passed: boolean;
   error_type: string | null;
   message: string | null;
+  /** `repr` of what the student's code returned, and of what was expected. */
   actual: string | null;
   expected: string | null;
+  /**
+   * The same two values as real JSON, for structural diffing.
+   *
+   * `null` when the value was too large or could not be represented, in which
+   * case fall back to the reprs above — those are always present.
+   */
+  actual_value?: unknown;
+  expected_value?: unknown;
+  /** Wall-clock seconds this case took, including process startup. */
+  elapsed: number;
+  /**
+   * Seconds spent inside the student's own code, excluding interpreter
+   * startup. This is the number worth showing a student — `elapsed` is
+   * dominated by process spawn on Windows.
+   */
+  compute: number;
+  /** Anything the student printed while this case ran. */
+  stdout: string | null;
+  /**
+   * True when that output was cut short. The harness stops buffering at 4000
+   * characters instead of accumulating a runaway print loop in memory, so this
+   * means "you printed a lot" — not "something broke".
+   */
+  stdout_truncated?: boolean;
+  /** Clean exit status. Null when the child was killed by a signal. */
+  exit_code?: number | null;
+  /** Number of the signal that killed the child. Null on a clean exit. */
+  signal?: number | null;
+  /**
+   * True when the kernel's OOM killer ended this case. `null` means the
+   * backend cannot report it (the host runner has no cgroup), which is
+   * deliberately different from `false` — "we looked and it did not happen".
+   */
+  oom_killed?: boolean | null;
+};
+
+/**
+ * What the sandbox did, as opposed to what the code did.
+ *
+ * Only the container backend can fill this in, so it is `null` when the host
+ * runner is configured. It exists so an out-of-memory failure can be explained
+ * with numbers rather than a bare SIGKILL.
+ */
+export type SandboxInfo = {
+  memory_limit_bytes: number | null;
+  /** High-water mark across the whole submission — cgroup v2's `memory.peak`
+   *  is monotonic, so it cannot be attributed to one test case. */
+  memory_peak_bytes: number | null;
+  oom_killed: boolean;
 };
 
 /** Friendly, student-facing error copy produced by the backend. */
@@ -67,6 +132,11 @@ export type RunResult = {
    * appear in history.
    */
   submission_id: number | null;
+  /**
+   * What the sandbox did. `null` when the host runner is configured — there is
+   * no container, so there is no memory ceiling to report.
+   */
+  sandbox: SandboxInfo | null;
 };
 
 export type ReviewIssue = {
@@ -196,11 +266,17 @@ export type Progress = {
 /**
  * Shape returned by the saved-draft endpoints.
  *
- * `code` is null when this problem has never been saved, which is the normal
- * starting state rather than an error — so callers must not treat it as one.
+ * `code` is null when this problem has never been saved *in this language*,
+ * which is the normal starting state rather than an error — so callers must not
+ * treat it as one.
+ *
+ * `language` is part of the draft's identity: a Python draft and a JavaScript
+ * draft for one problem are separate rows, because the language selector makes
+ * having both a normal thing to do.
  */
 export type SavedCode = {
   problem_id: number;
+  language: string | null;
   code: string | null;
   updated_at: string | null;
 };

@@ -584,7 +584,7 @@ _PROBLEM_GUIDANCE: dict[int, dict[str, str]] = {
         "issue_body": (
             "Your solution compares every pair of elements, which performs on the "
             "order of n² comparisons. That is fine for the small examples, but on "
-            "the 20,000-element test case the comparison count explodes, which is "
+            "the large-input test case the comparison count explodes, which is "
             "why that test case timed out."
         ),
     },

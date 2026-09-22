@@ -157,22 +157,22 @@ export function fetchProgress(): Promise<Progress> {
 }
 
 /**
- * The student's saved draft for a problem.
+ * The student's saved draft for a problem, in one language.
  *
- * `code` comes back null when nothing has been saved, which is where every
- * problem starts. A draft is a convenience rather than a prerequisite, so
- * callers should treat a failure here as "no draft" and carry on with the
- * starter code rather than blocking the workspace.
+ * `code` comes back null when nothing has been saved in that language, which is
+ * where every problem starts. A draft is a convenience rather than a
+ * prerequisite, so callers should treat a failure here as "no draft" and carry
+ * on with the starter code rather than blocking the workspace.
  */
-export function fetchSavedCode(problemId: number): Promise<SavedCode> {
-  return request<SavedCode>(`/api/saved-code/${problemId}`);
+export function fetchSavedCode(problemId: number, language = 'python'): Promise<SavedCode> {
+  return request<SavedCode>(`/api/saved-code/${problemId}?language=${encodeURIComponent(language)}`);
 }
 
-/** Replace the saved draft for a problem. One row per user and problem. */
-export function saveCode(problemId: number, code: string): Promise<SavedCode> {
+/** Replace the saved draft for a problem. One row per user, problem and language. */
+export function saveCode(problemId: number, code: string, language = 'python'): Promise<SavedCode> {
   return request<SavedCode>(`/api/saved-code/${problemId}`, {
     method: 'PUT',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, language }),
   });
 }
 

@@ -1,17 +1,22 @@
-"""In-memory problem catalogue.
+"""Problem catalogue, loaded from ``problems.json``.
 
-This is intentionally a plain Python data structure - the MVP has no
-database (see plan section 17). Each record carries the public fields the
-frontend renders plus `entrypoint`, the name of the function the code
-runner must call for that problem.
+The catalogue is a plain JSON file rather than a Python literal so that
+adding a problem does not mean editing code. The accessors at the bottom of
+this module are the only thing the rest of the app touches, so moving the
+catalogue into Postgres later means reimplementing them and nothing else.
 
-To migrate to PostgreSQL later, only the accessor functions at the bottom
-of this module need to change.
+Every problem carries a ``languages`` map. A language the problem does not
+declare is a language it cannot be attempted in, which is what lets the
+catalogue grow language by language instead of all at once.
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, TypedDict
+
+PROBLEMS_PATH = Path(__file__).resolve().parent / "problems.json"
 
 
 class Example(TypedDict):
@@ -19,20 +24,33 @@ class Example(TypedDict):
     output: str
 
 
+class LanguageSpec(TypedDict):
+    """How one problem is attempted in one language.
+
+    ``entrypoint`` is the name the harness calls, ``params``/``returns`` are
+    the signature the driver generator reads (and the UI shows), and
+    ``starter`` seeds the editor.
+    """
+
+    entrypoint: str
+    params: list[str]
+    returns: str
+    starter: str
+
+
 class Problem(TypedDict):
     id: int
     title: str
     difficulty: str
     category: str
+    tags: list[str]
     description: str
     examples: list[Example]
-    starter: str
-    tags: list[str]
-    entrypoint: str
+    languages: dict[str, LanguageSpec]
 
 
-#: Fields returned by the list endpoint. `starter` and `entrypoint` are
-#: held back so the list payload stays small; the detail endpoint adds them.
+#: Fields returned by the list endpoint. `languages` is held back so the
+#: list payload does not carry four starter snippets per problem.
 PUBLIC_FIELDS = (
     "id",
     "title",
@@ -44,129 +62,16 @@ PUBLIC_FIELDS = (
 )
 
 #: Extra fields only the detail endpoint returns, so the coding workspace
-#: knows what code to seed the editor with and what will be tested.
-DETAIL_FIELDS = ("starter", "entrypoint")
+#: knows what to seed the editor with and what will be tested.
+DETAIL_FIELDS = ("languages",)
 
 
-PROBLEMS: list[Problem] = [
-    {
-        "id": 1,
-        "title": "Contains Duplicate",
-        "difficulty": "Easy",
-        "category": "Arrays",
-        "tags": ["Arrays", "Hash Table"],
-        "description": (
-            "Given an integer array nums, return true if any value appears "
-            "at least twice in the array, and return false if every element "
-            "is distinct."
-        ),
-        "examples": [
-            {"input": "[1, 2, 3, 1]", "output": "true"},
-            {"input": "[1, 2, 3, 4]", "output": "false"},
-        ],
-        "starter": (
-            "def containsDuplicate(nums):\n"
-            "    # Write your solution here\n"
-            "    pass"
-        ),
-        "entrypoint": "containsDuplicate",
-    },
-    {
-        "id": 2,
-        "title": "Two Sum",
-        "difficulty": "Easy",
-        "category": "Arrays",
-        "tags": ["Arrays", "Hash Table"],
-        "description": (
-            "Given an array of integers nums and an integer target, return "
-            "the indices of the two numbers that add up to target. You may "
-            "assume each input has exactly one solution."
-        ),
-        "examples": [
-            {"input": "nums = [2, 7, 11, 15], target = 9", "output": "[0, 1]"},
-            {"input": "nums = [3, 2, 4], target = 6", "output": "[1, 2]"},
-        ],
-        "starter": (
-            "def twoSum(nums, target):\n"
-            "    # Write your solution here\n"
-            "    pass"
-        ),
-        "entrypoint": "twoSum",
-    },
-    {
-        "id": 3,
-        "title": "Valid Anagram",
-        "difficulty": "Easy",
-        "category": "Strings",
-        "tags": ["Strings", "Hash Table"],
-        "description": (
-            "Given two strings s and t, return true if t is an anagram of s, "
-            "and false otherwise. An anagram uses exactly the same "
-            "characters with the same counts."
-        ),
-        "examples": [
-            {"input": 's = "anagram", t = "nagaram"', "output": "true"},
-            {"input": 's = "rat", t = "car"', "output": "false"},
-        ],
-        "starter": (
-            "def isAnagram(s, t):\n"
-            "    # Write your solution here\n"
-            "    pass"
-        ),
-        "entrypoint": "isAnagram",
-    },
-    {
-        "id": 4,
-        "title": "Binary Search",
-        "difficulty": "Easy",
-        "category": "Arrays",
-        "tags": ["Arrays", "Binary Search"],
-        "description": (
-            "Given a sorted array of integers nums and an integer target, "
-            "return the index of target if it exists, otherwise return -1. "
-            "Your solution should run in O(log n) time."
-        ),
-        "examples": [
-            {
-                "input": "nums = [-1, 0, 3, 5, 9, 12], target = 9",
-                "output": "4",
-            },
-            {
-                "input": "nums = [-1, 0, 3, 5, 9, 12], target = 2",
-                "output": "-1",
-            },
-        ],
-        "starter": (
-            "def search(nums, target):\n"
-            "    # Write your solution here\n"
-            "    pass"
-        ),
-        "entrypoint": "search",
-    },
-    {
-        "id": 5,
-        "title": "Maximum Subarray",
-        "difficulty": "Medium",
-        "category": "Dynamic Programming",
-        "tags": ["Arrays", "Dynamic Programming"],
-        "description": (
-            "Given an integer array nums, find the contiguous subarray "
-            "containing at least one number which has the largest sum, and "
-            "return that sum."
-        ),
-        "examples": [
-            {"input": "[-2, 1, -3, 4, -1, 2, 1, -5, 4]", "output": "6"},
-            {"input": "[5, 4, -1, 7, 8]", "output": "23"},
-        ],
-        "starter": (
-            "def maxSubArray(nums):\n"
-            "    # Write your solution here\n"
-            "    pass"
-        ),
-        "entrypoint": "maxSubArray",
-    },
-]
+def _load() -> list[Problem]:
+    with PROBLEMS_PATH.open(encoding="utf-8") as handle:
+        return json.load(handle)
 
+
+PROBLEMS: list[Problem] = _load()
 
 _BY_ID: dict[int, Problem] = {problem["id"]: problem for problem in PROBLEMS}
 
@@ -185,11 +90,58 @@ def problem_exists(problem_id: int) -> bool:
     return problem_id in _BY_ID
 
 
-def to_public(problem: Problem, *, include_entrypoint: bool = False) -> dict[str, Any]:
+def languages_for(problem: Problem) -> dict[str, LanguageSpec]:
+    """The languages this problem can be attempted in."""
+    return problem["languages"]
+
+
+def supports_language(problem: Problem, language: str) -> bool:
+    return language in problem["languages"]
+
+
+def to_public(problem: Problem, *, include_languages: bool = False) -> dict[str, Any]:
     """Project a problem record down to the API-safe field set.
 
-    With ``include_entrypoint`` the detail-only fields (starter code and the
-    function name the runner calls) are added on top of the list fields.
+    With ``include_languages`` the detail-only field is added on top of the
+    list fields. Test cases and expected values are never part of this - the
+    client is told what to solve, never how it is checked.
     """
-    fields = PUBLIC_FIELDS + (DETAIL_FIELDS if include_entrypoint else ())
+    fields = PUBLIC_FIELDS + (DETAIL_FIELDS if include_languages else ())
     return {field: problem[field] for field in fields}  # type: ignore[literal-required]
+
+
+def validate_catalogue() -> list[str]:
+    """Structural checks over the whole catalogue.
+
+    Returns a list of human-readable problems, empty when the file is sound.
+    Not run at import: a broken data file should be reported by the smoke test
+    and by pytest rather than crash the API at startup.
+    """
+    problems: list[str] = []
+    seen_ids: set[int] = set()
+
+    for index, problem in enumerate(PROBLEMS):
+        where = f"problem {index} ({problem.get('title') or 'untitled'})"
+
+        problem_id = problem.get("id")
+        if not isinstance(problem_id, int):
+            problems.append(f"{where}: missing or non-integer 'id'")
+        elif problem_id in seen_ids:
+            problems.append(f"{where}: duplicate id {problem_id}")
+        else:
+            seen_ids.add(problem_id)
+
+        for field in PUBLIC_FIELDS:
+            if not problem.get(field):
+                problems.append(f"{where}: missing '{field}'")
+
+        languages = problem.get("languages") or {}
+        if not languages:
+            problems.append(f"{where}: declares no languages")
+        for language, spec in languages.items():
+            if not spec.get("entrypoint"):
+                problems.append(f"{where}/{language}: missing 'entrypoint'")
+            if not spec.get("starter"):
+                problems.append(f"{where}/{language}: missing 'starter'")
+
+    return problems

@@ -1,7 +1,7 @@
 """Problem catalogue endpoints.
 
 ``GET /api/problems``       - list every problem
-``GET /api/problems/{id}``  - one problem, including its starter code
+``GET /api/problems/{id}``  - one problem, including its per-language starter code
 """
 
 from __future__ import annotations
@@ -27,6 +27,6 @@ def get_problem(problem_id: int) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No problem with id {problem_id}.",
         )
-    # The detail view additionally exposes the starter code and the
-    # function name the runner will call.
-    return problem_data.to_public(problem, include_entrypoint=True)
+    # The detail view additionally exposes the per-language specs: the starter
+    # code the editor is seeded with, and the signature the runner calls.
+    return problem_data.to_public(problem, include_languages=True)

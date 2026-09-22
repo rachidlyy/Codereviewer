@@ -27,6 +27,11 @@ export default function SubmissionPage({ submission }: Props) {
     tests: submission.tests,
     error: submission.error,
     submission_id: submission.id,
+    // Sandbox facts are not persisted - they describe the container that ran
+    // this submission, which is long gone by the time history is read. The
+    // per-case exit code, signal and OOM flag *are* stored with the tests, so
+    // the failure itself still reads correctly here.
+    sandbox: null,
   };
 
   return (

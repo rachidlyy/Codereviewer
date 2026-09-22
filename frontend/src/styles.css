@@ -1308,3 +1308,194 @@ header{
 /* A failed save is the one state worth noticing: the code is still in the
    editor, but it is not on the server. */
 .save-state.error{color:var(--color-bad)}
+
+/* ---------------------------------------------------------------------------
+   Phase 3 — execution feedback
+
+   Appended, per the layering rule at the top of this file: line 2 holds the
+   original stylesheet minified onto one line and must never be edited, so
+   every change below is a later rule that wins on cascade order.
+
+   Two things here are load-bearing rather than cosmetic:
+
+   1. `.case-output pre` is capped and scrollable. The harness already stops
+      buffering student output at 4000 characters, so the payload is bounded
+      before it reaches the browser - but a page that renders an unbounded
+      block would still be a page that hangs.
+   2. `details.test` overrides the chip's `display:flex` from the base sheet.
+      A `<details>` lays its summary and its content out as siblings, so
+      leaving it flex would put the expanded panel *beside* the summary
+      instead of underneath it.
+--------------------------------------------------------------------------- */
+
+/* Per-case duration. Monospace and tabular so the digits line up down the
+   list, which is what makes "which test is slow" scannable. */
+.test .case-time{
+  display:inline;
+  margin-left:auto;
+  font-family:var(--font-mono);
+  font-size:var(--text-2xs);
+  font-variant-numeric:tabular-nums;
+  color:var(--color-ink-3);
+}
+
+/* Closed, a case is a chip in the row. Open, it takes the full width so the
+   detail reads as a panel rather than squeezing into a chip. */
+details.test{display:block}
+details.test[open]{flex-basis:100%}
+details.test > summary{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  cursor:pointer;
+  list-style:none;
+}
+details.test > summary::-webkit-details-marker{display:none}
+details.test > summary::after{
+  content:'';
+  width:5px;
+  height:5px;
+  margin-left:6px;
+  border-right:1px solid var(--color-ink-3);
+  border-bottom:1px solid var(--color-ink-3);
+  transform:rotate(-45deg);
+  transition:transform var(--dur-short) var(--ease-out);
+}
+details.test[open] > summary::after{transform:rotate(45deg)}
+
+/* The base sheet hides every span inside `.test` and re-shows only
+   `.test-name`. Anything added inside a detail panel needs re-showing. */
+.case-detail span{display:inline}
+
+.case-detail{
+  display:grid;
+  gap:8px;
+  margin-top:8px;
+  padding-top:9px;
+  border-top:1px solid var(--color-rule);
+  /* `.test.pass` / `.test.fail` colour their text green or red; detail is
+     prose about the failure, not a verdict, so it resets to ink. */
+  color:var(--color-ink-3);
+  font-size:var(--text-2xs);
+}
+.case-detail p{margin:0}
+.case-message{color:var(--color-ink-2);line-height:1.5}
+.case-values{display:flex;flex-wrap:wrap;gap:10px;font-family:var(--font-mono)}
+.case-values b{color:var(--color-ink-2);font-weight:500}
+.case-values b.mismatch{color:var(--color-bad)}
+.case-exit{font-family:var(--font-mono);color:var(--color-warn)}
+
+/* --- Structural diff ---------------------------------------------------- */
+
+.diff{display:grid;gap:5px}
+.diff-head{color:var(--color-ink-3)}
+.diff-rows{display:grid;gap:3px;margin:0;padding:0;list-style:none}
+.diff-rows li{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  font-family:var(--font-mono);
+}
+.diff-index{min-width:34px;color:var(--color-ink-3)}
+.diff-expected{color:var(--color-ok)}
+.diff-arrow{color:var(--color-ink-3);font-family:var(--font-body)}
+.diff-actual{color:var(--color-bad)}
+.diff-more{color:var(--color-ink-3)}
+
+/* --- Captured stdout ---------------------------------------------------- */
+
+.case-output{display:grid;gap:5px}
+.output-label{display:flex;align-items:center;gap:4px;color:var(--color-ink-3)}
+.output-label em{font-style:normal;color:var(--color-warn)}
+.case-output pre{
+  margin:0;
+  max-height:170px;
+  overflow:auto;
+  padding:8px 10px;
+  border:1px solid var(--color-rule);
+  border-radius:var(--radius-chip);
+  background:var(--color-paper);
+  color:var(--color-ink-2);
+  font-family:var(--font-mono);
+  font-size:var(--text-2xs);
+  line-height:1.5;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.output-note{color:var(--color-ink-3);line-height:1.5}
+
+/* --- Sandbox facts ------------------------------------------------------ */
+
+.sandbox-note{
+  display:grid;
+  gap:3px;
+  padding:8px 10px;
+  border:1px solid var(--color-rule-2);
+  border-radius:var(--radius-chip);
+  background:var(--color-paper);
+}
+.sandbox-note .sandbox-line{color:var(--color-ink-2);line-height:1.5}
+.sandbox-note .sandbox-line b{color:var(--color-bad);font-weight:500}
+.sandbox-meta{font-family:var(--font-mono);color:var(--color-ink-3)}
+
+/* The headline time is the student's code; the wall-clock total is context. */
+.exec-total{color:var(--color-ink-3)}
+
+/* ---------------------------------------------------------------------------
+   Phase 4 — the language selector
+
+   A bar showing the current language, which opens the options when pressed,
+   rather than every language laid out side by side. Two languages fitted
+   inline; four would not, and the control has to survive Phase 6.
+
+   A native <select> rather than a custom popover. The page already sets
+   `color-scheme:dark`, so the option list the OS draws is dark and needs no
+   styling at all — and keyboard handling, focus management and screen-reader
+   support come with it instead of being reimplemented, probably worse.
+
+   `appearance:none` removes the platform arrow so the chevron can be ours;
+   `padding-right` reserves the room it sits in.
+--------------------------------------------------------------------------- */
+
+.language-select{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+}
+.language-select select{
+  appearance:none;
+  -webkit-appearance:none;
+  padding:7px 26px 7px 12px;
+  border:1px solid var(--color-rule-2);
+  border-radius:var(--radius-chip);
+  background:var(--color-paper-2);
+  color:var(--color-ink-2);
+  font-family:var(--font-body);
+  font-size:var(--text-xs);
+  line-height:1.2;
+  cursor:pointer;
+  transition:background var(--dur-short) var(--ease-out),
+             border-color var(--dur-short) var(--ease-out),
+             color var(--dur-short) var(--ease-out);
+}
+.language-select select:hover:not(:disabled){
+  background:var(--color-paper-3);
+  border-color:var(--color-rule-2);
+  color:var(--color-ink);
+}
+/* Switching mid-run would discard the run, so it is blocked. Dimming says so
+   without needing a tooltip the student has to go looking for — and the opacity
+   goes on the *wrapper* so the chevron dims with the label instead of staying
+   bright beside it. */
+.language-select.is-locked{opacity:0.45}
+.language-select.is-locked select{cursor:not-allowed}
+.language-select.is-locked svg{color:var(--color-ink-3)}
+/* The chevron is decoration; without this it would swallow the click and the
+   select underneath would never open. */
+.language-select svg{
+  position:absolute;
+  right:8px;
+  pointer-events:none;
+  color:var(--color-ink-3);
+}
+.language-select select:hover:not(:disabled) + svg{color:var(--color-ink-2)}

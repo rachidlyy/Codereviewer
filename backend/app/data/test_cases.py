@@ -1,143 +1,149 @@
-"""Structured test cases for the MVP problem set.
+"""Structured test cases, loaded from ``test_cases.json``.
 
-Format (see plan section 10) - a dict keyed by `problem_id`, each value a
-list of cases::
+Format
+------
+A JSON object keyed by ``problem_id`` - as a **string**, because JSON has no
+integer keys - each value a list of cases::
 
-    TEST_CASES = {
-        1: [
-            {"input": "[1, 2, 3, 1]", "expected": "True"},
-        ]
+    {
+      "1": [
+        {"name": "Basic duplicate", "args": [[1, 2, 3, 1]], "expected": true}
+      ]
     }
 
-Two small extensions are used by the runner:
+``args``
+    The positional arguments of the call, as JSON. ``args: [[1, 2, 3, 1]]``
+    is executed as ``entrypoint([1, 2, 3, 1])``.
 
-* ``name``    - a short human label shown in the results UI.
-* ``timeout`` - per-case override, in seconds. Used by the large-input
-  case so an inefficient solution is reported as a timeout rather than
-  hanging the request.
+    JSON rather than a language-specific expression is the entire point: the
+    same case has to be runnable from Python, JavaScript, Java and C++. The
+    previous format used Python expressions (``"[1, 2, 3, 1]"``,
+    ``"list(range(20000))"``), which could never generalise past Python.
 
-``input`` is the argument list of the call, so a case with ``input`` of
-``"[2, 7, 11, 15], 9"`` is executed as ``twoSum([2, 7, 11, 15], 9)``.
-``expected`` is a Python expression compared against the returned value.
+``expected``
+    The expected return value, as JSON. Compared by the **runner**, not by
+    the language harness - see ``services/code_runner.py``. Keeping the
+    comparison in one place is what stops four languages needing four
+    implementations of the same tolerance rules.
+
+``generate``
+    An alternative to ``args`` for inputs too large to write as a literal.
+    It expands to the args array:
+
+    ``{"kind": "range", "n": 200000}``  ->  ``[list(range(200000))]``
+
+    i.e. one positional argument holding the integers 0..n-1. This replaces
+    the old Python-only ``list(range(200000))`` and is why the large-input
+    performance case survives in every language.
+
+``timeout``
+    Per-case override, in seconds. Used by the large-input case so an
+    inefficient solution is reported as a timeout rather than hanging the
+    request.
+
+``name``
+    Short human label shown in the results UI.
+
+``comparator``
+    Optional. ``exact`` (default) or ``unordered``, for answers where element
+    order is not part of the contract.
 """
 
 from __future__ import annotations
 
-from typing import TypedDict
+import json
+from pathlib import Path
+from typing import Any, TypedDict
+
+TEST_CASES_PATH = Path(__file__).resolve().parent / "test_cases.json"
 
 
 class TestCase(TypedDict, total=False):
-    input: str
-    expected: str
     name: str
+    args: list[Any]
+    generate: dict[str, Any]
+    expected: Any
     timeout: float
+    comparator: str
 
 
-TEST_CASES: dict[int, list[TestCase]] = {
-    # --- 1. Contains Duplicate ------------------------------------------
-    1: [
-        {
-            "name": "Basic duplicate",
-            "input": "[1, 2, 3, 1]",
-            "expected": "True",
-        },
-        {
-            "name": "All distinct",
-            "input": "[1, 2, 3, 4]",
-            "expected": "False",
-        },
-        {
-            "name": "Empty array",
-            "input": "[]",
-            "expected": "False",
-        },
-        {
-            # 20,000 distinct values. A hash-set solution answers this
-            # instantly; a nested-loop solution performs ~200M comparisons
-            # and exceeds the timeout. This is the case that turns the
-            # demo's O(n^2) submission into "3/4 tests passed" and gives
-            # the AI reviewer something real to talk about.
-            "name": "Large input (performance)",
-            "input": "list(range(20000))",
-            "expected": "False",
-            "timeout": 3.0,
-        },
-    ],
-    # --- 2. Two Sum ------------------------------------------------------
-    2: [
-        {
-            "name": "Basic pair",
-            "input": "[2, 7, 11, 15], 9",
-            "expected": "[0, 1]",
-        },
-        {
-            "name": "Middle pair",
-            "input": "[3, 2, 4], 6",
-            "expected": "[1, 2]",
-        },
-        {
-            "name": "Repeated values",
-            "input": "[3, 3], 6",
-            "expected": "[0, 1]",
-        },
-    ],
-    # --- 3. Valid Anagram ------------------------------------------------
-    3: [
-        {
-            "name": "Valid anagram",
-            "input": '"anagram", "nagaram"',
-            "expected": "True",
-        },
-        {
-            "name": "Not an anagram",
-            "input": '"rat", "car"',
-            "expected": "False",
-        },
-        {
-            "name": "Both empty",
-            "input": '"", ""',
-            "expected": "True",
-        },
-    ],
-    # --- 4. Binary Search ------------------------------------------------
-    4: [
-        {
-            "name": "Target present",
-            "input": "[-1, 0, 3, 5, 9, 12], 9",
-            "expected": "4",
-        },
-        {
-            "name": "Target absent",
-            "input": "[-1, 0, 3, 5, 9, 12], 2",
-            "expected": "-1",
-        },
-        {
-            "name": "Single element",
-            "input": "[5], 5",
-            "expected": "0",
-        },
-    ],
-    # --- 5. Maximum Subarray ---------------------------------------------
-    5: [
-        {
-            "name": "Mixed signs",
-            "input": "[-2, 1, -3, 4, -1, 2, 1, -5, 4]",
-            "expected": "6",
-        },
-        {
-            "name": "Single element",
-            "input": "[1]",
-            "expected": "1",
-        },
-        {
-            "name": "All positive",
-            "input": "[5, 4, -1, 7, 8]",
-            "expected": "23",
-        },
-    ],
-}
+def _load() -> dict[int, list[TestCase]]:
+    """Read the catalogue, converting the JSON string keys back to ints."""
+    with TEST_CASES_PATH.open(encoding="utf-8") as handle:
+        raw: dict[str, list[TestCase]] = json.load(handle)
+    return {int(problem_id): cases for problem_id, cases in raw.items()}
+
+
+TEST_CASES: dict[int, list[TestCase]] = _load()
 
 
 def get_test_cases(problem_id: int) -> list[TestCase]:
     """Return the test cases for a problem (empty list when unknown)."""
     return TEST_CASES.get(problem_id, [])
+
+
+class BadCase(ValueError):
+    """A test case that cannot be turned into arguments."""
+
+
+def resolve_args(case: TestCase) -> list[Any]:
+    """Expand a case into its positional arguments.
+
+    ``args`` is used directly; ``generate`` is expanded. Raises
+    :class:`BadCase` when neither is usable, which the runner reports as a
+    failure for that case rather than letting it take down the request.
+    """
+    if "args" in case:
+        return case["args"]
+
+    spec = case.get("generate")
+    if not spec:
+        raise BadCase("The test case declares neither 'args' nor 'generate'.")
+
+    kind = spec.get("kind")
+    if kind == "range":
+        try:
+            n = int(spec.get("n", 0))
+        except (TypeError, ValueError) as exc:
+            raise BadCase(f"'generate.range' needs an integer 'n', got {spec.get('n')!r}.") from exc
+        if n < 0:
+            raise BadCase(f"'generate.range' needs a non-negative 'n', got {n}.")
+        return [list(range(n))]
+
+    raise BadCase(f"Unknown generate kind {kind!r}.")
+
+
+def validate_test_cases() -> list[str]:
+    """Structural checks over the whole catalogue.
+
+    Returns a list of human-readable problems, empty when the file is sound.
+    Deliberately *not* run at import: a broken data file should be reported
+    by the smoke test and by pytest, not crash the API at startup - a dead
+    server also takes down ``/docs`` and ``/api/health``, which are the tools
+    you would use to see what is wrong.
+    """
+    problems: list[str] = []
+
+    for problem_id, cases in sorted(TEST_CASES.items()):
+        if not cases:
+            problems.append(f"problem {problem_id}: no test cases")
+            continue
+
+        for index, case in enumerate(cases, start=1):
+            where = f"problem {problem_id} case {index} ({case.get('name') or 'unnamed'})"
+            if "expected" not in case:
+                problems.append(f"{where}: no 'expected' value")
+            has_args, has_generate = "args" in case, "generate" in case
+            if has_args and has_generate:
+                problems.append(f"{where}: declares both 'args' and 'generate'")
+            elif not has_args and not has_generate:
+                problems.append(f"{where}: declares neither 'args' nor 'generate'")
+            if has_generate:
+                try:
+                    resolve_args(case)
+                except BadCase as exc:
+                    problems.append(f"{where}: {exc}")
+            if case.get("comparator") not in (None, "exact", "unordered"):
+                problems.append(f"{where}: unknown comparator {case['comparator']!r}")
+
+    return problems

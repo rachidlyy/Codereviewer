@@ -11,7 +11,7 @@ import {
   toTestResultSummary,
 } from '../services/api';
 import { messageOf } from '../services/errors';
-import type { ProblemSummary, Review, RunResult, SaveState } from '../types';
+import type { LanguageSpec, ProblemSummary, Review, RunResult, SaveState } from '../types';
 
 /**
  * How long typing must pause before the draft is written.
@@ -21,6 +21,64 @@ import type { ProblemSummary, Review, RunResult, SaveState } from '../types';
  * is still looking at the screen.
  */
 const SAVE_DEBOUNCE_MS = 900;
+
+/**
+ * The language the workspace opens in when nothing has been chosen yet.
+ *
+ * Python because it is the language the catalogue is written for and the one
+ * every problem's explanation uses.
+ */
+const FALLBACK_LANGUAGE = 'python';
+
+/**
+ * Where the chosen language is remembered, per problem.
+ *
+ * `localStorage` rather than a column on the server, deliberately: which
+ * language you were last looking at is a *view* preference, not part of the
+ * student's work, and keeping it here means it survives a refresh without a
+ * round trip and works before sign-in too. The draft itself - the code - is
+ * still server-side and still per (problem, language).
+ */
+function languageKey(problemId: number): string {
+  return `codereviewer:language:${problemId}`;
+}
+
+/**
+ * The stored choice, or the fallback.
+ *
+ * Storage can throw rather than return null: Safari in private mode raises on
+ * access, and a browser with site data blocked raises on read. None of that is
+ * a reason for the workspace not to load.
+ */
+function readStoredLanguage(problemId: number): string {
+  try {
+    return window.localStorage.getItem(languageKey(problemId)) ?? FALLBACK_LANGUAGE;
+  } catch {
+    return FALLBACK_LANGUAGE;
+  }
+}
+
+function writeStoredLanguage(problemId: number, language: string): void {
+  try {
+    window.localStorage.setItem(languageKey(problemId), language);
+  } catch {
+    // A preference that cannot be persisted is still a preference for this
+    // session; there is nothing useful to tell the student about it.
+  }
+}
+
+/**
+ * The stored language if this problem actually offers it, else its first one.
+ *
+ * A stored choice can outlive the catalogue it was made against - a problem
+ * that used to offer JavaScript and no longer does, or a hand-edited storage
+ * value. Falling back here means the workspace opens on a language the problem
+ * can be run in rather than one that 400s on the first attempt.
+ */
+function offeredLanguage(offered: string[], preferred: string): string {
+  if (offered.includes(preferred)) return preferred;
+  return offered[0] ?? FALLBACK_LANGUAGE;
+}
 
 /** A synthetic run result used when the request itself failed. */
 function runFailure(message: string): RunResult {
@@ -39,6 +97,8 @@ function runFailure(message: string): RunResult {
     },
     // Nothing was executed, so nothing was recorded either.
     submission_id: null,
+    // No container ran, so there are no sandbox facts to report.
+    sandbox: null,
   };
 }
 
@@ -63,6 +123,12 @@ export default function WorkspaceRoute() {
   const summaryFromNav = (location.state as { summary?: ProblemSummary } | null)?.summary ?? null;
 
   const [problem, setProblem] = useState<ProblemSummary | null>(summaryFromNav);
+  // Held separately from `problem` rather than folded into it: the nav-state
+  // summary is a `ProblemSummary`, which has no `languages`, so widening the
+  // state type to `Problem` would mean lying about what a cold load can render
+  // before the fetch resolves.
+  const [languages, setLanguages] = useState<Record<string, LanguageSpec>>({});
+  const [language, setLanguage] = useState(FALLBACK_LANGUAGE);
   const [code, setCode] = useState('');
   const [codeLoading, setCodeLoading] = useState(true);
   const [codeError, setCodeError] = useState<string | null>(null);
@@ -72,7 +138,10 @@ export default function WorkspaceRoute() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [lastSaved, setLastSaved] = useState('');
 
-  const [lastRun, setLastRun] = useState<{ code: string; result: RunResult } | null>(null);
+  // The language travels with the run, not alongside it: a result is only valid
+  // for the code *and* the language it was produced from, and `stale` below is
+  // what enforces that.
+  const [lastRun, setLastRun] = useState<{ code: string; language: string; result: RunResult } | null>(null);
   const [running, setRunning] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
   const [reviewing, setReviewing] = useState(false);
@@ -99,17 +168,29 @@ export default function WorkspaceRoute() {
     setSaveState('idle');
     setLastSaved('');
 
+    // The remembered language has to be resolved *before* the draft is
+    // fetched, not after: the draft is keyed by language, so asking for the
+    // wrong one would hand back another language's code.
+    const preferred = readStoredLanguage(id);
+
     Promise.all([
       fetchProblem(id),
       // A draft is a convenience, never a prerequisite: if this one fails the
       // student still gets the starter code and can work normally.
-      fetchSavedCode(id).catch(() => null),
+      fetchSavedCode(id, preferred).catch(() => null),
     ])
       .then(([detail, draft]) => {
         if (cancelled) return;
         // Also fills in the heading on a cold load, where nav state is absent.
         setProblem(detail);
-        const initial = draft?.code ?? detail.starter;
+        const offered = Object.keys(detail.languages ?? {});
+        const chosen = offeredLanguage(offered, preferred);
+        setLanguages(detail.languages ?? {});
+        setLanguage(chosen);
+        // A problem missing this language has no starter to seed with; an
+        // empty editor is a better outcome than a crash or a stale draft.
+        const starter = detail.languages?.[chosen]?.starter ?? '';
+        const initial = draft?.code ?? starter;
         setCode(initial);
         // Whatever we loaded counts as already saved, so simply opening a
         // problem never writes a row.
@@ -129,11 +210,12 @@ export default function WorkspaceRoute() {
 
   // Mirrors of the live values, so the unmount flush below can read them
   // without the effect that owns the debounce timer being rebuilt on every
-  // keystroke.
-  const flush = useRef({ id, code, lastSaved });
+  // keystroke. `language` is in here for the same reason it is in the save
+  // call: a draft written without it would land in the wrong row.
+  const flush = useRef({ id, language, code, lastSaved });
   useEffect(() => {
-    flush.current = { id, code, lastSaved };
-  }, [id, code, lastSaved]);
+    flush.current = { id, language, code, lastSaved };
+  }, [id, language, code, lastSaved]);
 
   // The debounce effect clears its timer whenever it re-runs, which includes
   // unmounting - so leaving the workspace would silently drop the last edit.
@@ -144,11 +226,11 @@ export default function WorkspaceRoute() {
   // reliable unload hook to use instead.
   useEffect(() => {
     return () => {
-      const { id: pendingId, code: pending, lastSaved: saved } = flush.current;
+      const { id: pendingId, language: pendingLanguage, code: pending, lastSaved: saved } = flush.current;
       if (pending && pending !== saved) {
         // Fire and forget: the component is gone, so there is nobody left to
         // tell if this fails.
-        void saveCode(pendingId, pending).catch(() => undefined);
+        void saveCode(pendingId, pending, pendingLanguage).catch(() => undefined);
       }
     };
   }, []);
@@ -160,7 +242,7 @@ export default function WorkspaceRoute() {
 
     const timer = setTimeout(() => {
       setSaveState('saving');
-      saveCode(id, code)
+      saveCode(id, code, language)
         .then(() => {
           setLastSaved(code);
           setSaveState('saved');
@@ -169,7 +251,7 @@ export default function WorkspaceRoute() {
     }, SAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [id, validId, code, codeLoading, lastSaved]);
+  }, [id, validId, code, codeLoading, lastSaved, language]);
 
   const handleCodeChange = useCallback((value: string) => {
     setCode(value);
@@ -178,19 +260,56 @@ export default function WorkspaceRoute() {
     setReview((current) => (current ? null : current));
   }, []);
 
+  /**
+   * Switch the language the student is working in.
+   *
+   * This is not just a label change: the draft, the starter and the run are all
+   * per language, so everything describing the previous attempt is dropped and
+   * the editor is re-seeded from the new language's draft or starter. Leaving
+   * the old code in place would hand the runner Python source labelled as
+   * JavaScript, which is the one outcome that would make the whole selector
+   * worse than not having it.
+   */
+  const handleLanguageChange = useCallback(
+    async (next: string) => {
+      if (next === language) return;
+
+      writeStoredLanguage(id, next);
+      setLanguage(next);
+      setLastRun(null);
+      setReview(null);
+      setReviewError(null);
+      setSaveState('idle');
+      setLastSaved('');
+      setCodeError(null);
+      setCodeLoading(true);
+
+      // Deliberately not awaited before `setLanguage`: the selector should
+      // respond to the click, not to the round trip. The editor shows its
+      // loading state in the meantime, exactly as it does on first open.
+      const draft = await fetchSavedCode(id, next).catch(() => null);
+      const starter = languages[next]?.starter ?? '';
+      const initial = draft?.code ?? starter;
+      setCode(initial);
+      setLastSaved(initial);
+      setCodeLoading(false);
+    },
+    [id, language, languages],
+  );
+
   const handleRun = useCallback(async () => {
     setRunning(true);
     setReview(null);
     setReviewError(null);
     try {
-      const result = await runCode(id, code);
-      setLastRun({ code, result });
+      const result = await runCode(id, code, language);
+      setLastRun({ code, language, result });
     } catch (error) {
-      setLastRun({ code, result: runFailure(messageOf(error)) });
+      setLastRun({ code, language, result: runFailure(messageOf(error)) });
     } finally {
       setRunning(false);
     }
-  }, [id, code]);
+  }, [id, code, language]);
 
   const handleReview = useCallback(async () => {
     if (!lastRun) return;
@@ -215,7 +334,11 @@ export default function WorkspaceRoute() {
     }
   }, [id, lastRun]);
 
-  const stale = lastRun !== null && lastRun.code !== code;
+  // A result is stale when either half of its premise has moved: editing the
+  // code, or switching language. The second case is why this compares two
+  // fields rather than one - a run of Python must not be reviewable as if it
+  // were a run of JavaScript.
+  const stale = lastRun !== null && (lastRun.code !== code || lastRun.language !== language);
   const canReview = lastRun !== null && !stale && !running;
 
   if (!problem) {
@@ -247,6 +370,9 @@ export default function WorkspaceRoute() {
       codeLoading={codeLoading}
       codeError={codeError}
       saveState={saveState}
+      language={language}
+      languages={languages}
+      onLanguageChange={handleLanguageChange}
     />
   );
 }
