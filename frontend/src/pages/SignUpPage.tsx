@@ -13,10 +13,10 @@ export default function SignUpPage({ onBack, onSwitchToSignIn }: Props) {
       </button>
 
       <div className="auth-card">
-        <header className="auth-head">
+        <div className="auth-head">
           <h3>Create your account</h3>
           <p>Save your progress and get reviews tied to your profile.</p>
-        </header>
+        </div>
 
         <div className="auth-clerk">
           <SignUp
@@ -34,13 +34,19 @@ export default function SignUpPage({ onBack, onSwitchToSignIn }: Props) {
                   "'Inter','Segoe UI',system-ui,-apple-system,sans-serif",
               },
               elements: {
-                rootBox: { width: '100%' },
+                rootBox: {
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                },
                 card: {
                   background: 'transparent',
                   boxShadow: 'none',
                   border: 'none',
                   padding: 0,
                   width: '100%',
+                  maxWidth: '100%',
+                  margin: '0 auto',
                 },
                 headerTitle: { display: 'none' },
                 headerSubtitle: { display: 'none' },

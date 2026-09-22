@@ -13,10 +13,10 @@ export default function LoginPage({ onBack, onSwitchToSignUp }: Props) {
       </button>
 
       <div className="auth-card">
-        <header className="auth-head">
+        <div className="auth-head">
           <h3>Welcome back</h3>
           <p>Sign in to save your progress and pick up where you left off.</p>
-        </header>
+        </div>
 
         <div className="auth-clerk">
           <SignIn
@@ -34,13 +34,19 @@ export default function LoginPage({ onBack, onSwitchToSignUp }: Props) {
                   "'Inter','Segoe UI',system-ui,-apple-system,sans-serif",
               },
               elements: {
-                rootBox: { width: '100%' },
+                rootBox: {
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                },
                 card: {
                   background: 'transparent',
                   boxShadow: 'none',
                   border: 'none',
                   padding: 0,
                   width: '100%',
+                  maxWidth: '100%',
+                  margin: '0 auto',
                 },
                 headerTitle: { display: 'none' },
                 headerSubtitle: { display: 'none' },

@@ -3,6 +3,8 @@ import { Show, UserButton } from '@clerk/react';
 
 type Props = {
   onHome: () => void;
+  onAbout: () => void;
+  onProgress: () => void;
   offlineReview?: boolean;
   onSignIn: () => void;
   onSignUp: () => void;
@@ -10,6 +12,8 @@ type Props = {
 
 export default function Header({
   onHome,
+  onAbout,
+  onProgress,
   offlineReview = false,
   onSignIn,
   onSignUp,
@@ -26,8 +30,12 @@ export default function Header({
       </div>
 
       <nav className="header-right">
-        <a className="nav-link" href="#about">About</a>
-        <a className="nav-link" href="#progress">Progress</a>
+        <button type="button" className="nav-link" onClick={onAbout}>
+          About
+        </button>
+        <button type="button" className="nav-link" onClick={onProgress}>
+          Progress
+        </button>
 
         <Show when="signed-out">
           <button type="button" className="nav-link" onClick={onSignIn}>

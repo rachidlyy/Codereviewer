@@ -180,7 +180,7 @@ Gemini failure reaches Groq while a Gemini *success* never touches it.
 | `GET` | `/api/health` | Readiness + whether the LLM is configured |
 
 ```bash
-# run a submission
+# run a submission 
 curl -X POST http://127.0.0.1:8000/api/submissions/run \
   -H "Content-Type: application/json" \
   -d '{"problem_id": 1, "language": "python", "code": "def containsDuplicate(nums):\n    return len(nums) != len(set(nums))"}'
@@ -189,7 +189,8 @@ curl -X POST http://127.0.0.1:8000/api/submissions/run \
 Run statuses: `passed` · `partial` · `failed` · `error` · `timeout`
 
 ---
-
+## clerk api key
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_bGVnaWJsZS1kaW5vc2F1ci00ODY0LmNsZXJrLmFjY291bnRzLmRldiQ
 ## Problems
 
 | # | Title | Difficulty |

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import BeamsBackground from './components/BeamsBackground';
 import Header from './components/Header';
+import AboutPage from './pages/AboutPage';
 import LoginPage from './pages/LoginPage';
 import ProblemsPage from './pages/ProblemsPage';
 import SignUpPage from './pages/SignUpPage';
@@ -17,7 +18,7 @@ import {
 } from './services/api';
 import type { ProblemSummary, Review, RunResult } from './types';
 
-type View = 'problems' | 'workspace' | 'login' | 'signup';
+type View = 'problems' | 'workspace' | 'login' | 'signup' | 'about';
 
 /** Turn anything thrown by the API layer into a message we can display. */
 function messageOf(error: unknown): string {
@@ -122,6 +123,7 @@ export default function App() {
 
   const goToSignIn = useCallback(() => setView('login'), []);
   const goToSignUp = useCallback(() => setView('signup'), []);
+  const goToAbout = useCallback(() => setView('about'), []);
 
   const handleCodeChange = useCallback((value: string) => {
     setCode(value);
@@ -173,12 +175,16 @@ export default function App() {
       <div className="app-content">
         <Header
           onHome={goHome}
+          onAbout={goToAbout}
+          onProgress={goHome}
           offlineReview={offlineReview}
           onSignIn={goToSignIn}
           onSignUp={goToSignUp}
         />
 
-        {view === 'login' ? (
+        {view === 'about' ? (
+          <AboutPage onBack={goHome} onStart={goHome} />
+        ) : view === 'login' ? (
           <LoginPage
             onBack={goHome}
             onSwitchToSignUp={goToSignUp}
