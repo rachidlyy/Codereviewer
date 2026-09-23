@@ -252,6 +252,10 @@ button:focus-visible{outline:2px solid #5b8dff;outline-offset:2px}
   --radius-chip:6px;
   --radius-pill:999px;
   --measure:1200px;
+  /* Narrower working column for the app shells. Added 2026-09-23 with the home
+     dashboard redesign — at --measure the dashboard's panels were mostly empty
+     space. See design.md § Per-page allowances. */
+  --measure-app:960px;
   --measure-copy:60ch;
   --header-h:68px;
 }
@@ -1499,3 +1503,237 @@ details.test[open] > summary::after{transform:rotate(45deg)}
   color:var(--color-ink-3);
 }
 .language-select select:hover:not(:disabled) + svg{color:var(--color-ink-2)}
+
+/* ==========================================================================
+   Hallmark · redesign — home dashboard (2026-09-23)
+   genre: modern-minimal · macrostructure: Workbench · design-system: design.md
+   --------------------------------------------------------------------------
+   Scope: the signed-in home dashboard (`HomePage.tsx`). design.md is the locked
+   system and this pass follows it — same theme, type, spacing and motion
+   tokens, no new enrichment, no scroll reveals.
+
+   Two defects fixed first, then the composition.
+
+   1. The shell was never centred. `.home-page` set `max-width` and
+      `padding-inline` but no `margin-inline`, so on any viewport wider than the
+      measure the dashboard sat against the left edge while the header spanned
+      the full width. `.history-page` and `.submission-page` share that
+      declaration and had the same defect, so one line fixes all three.
+
+   2. `main{border-top:1px solid #202b3a}` from the original sheet was still
+      applying. The header already draws `border-bottom` in `--color-rule`, so
+      the two stacked into a doubled hairline — and `#202b3a` is not a colour in
+      the system any more. Removed on the three app shells.
+
+   3. Every seam was 24px and every box was a bordered card of the same width,
+      with bordered rows nested inside bordered panels. Now: one centred column,
+      a readout band instead of four equal tiles, one level of card depth per
+      section, and a two-value rhythm instead of a flat 24.
+   ========================================================================== */
+
+/* --- the app shell ------------------------------------------------------- */
+
+/* `.home-page` also inherited `padding-top:18px` from the original `main` rule;
+   its own `padding-block` already overrode that, and `border-top:0` closes the
+   last of it. */
+.home-page,.history-page,.submission-page{
+  margin-inline:auto;
+  border-top:0;
+}
+
+/* History and submission keep --measure until asked — this pass is the
+   dashboard only. */
+.home-page{max-width:var(--measure-app)}
+
+/* --- stat readout -------------------------------------------------------- */
+
+/* Was four equal bordered tiles with centred text: the only centred thing on
+   the page, four borders doing one job, and figures floating mid-cell instead
+   of sitting on a shared baseline. Now one band — one border, four cells, flush
+   left, split by vertical hairlines. */
+.stat-band{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  border:var(--rule-hair) solid var(--color-rule);
+  background:var(--color-paper-2);
+  border-radius:var(--radius-card);
+  overflow:hidden;
+  margin-bottom:var(--space-xl);
+}
+.stat-band .stat{
+  border:0;
+  background:transparent;
+  border-radius:0;
+  padding:var(--space-md);
+  text-align:left;
+}
+.stat-band .stat + .stat{border-left:var(--rule-hair) solid var(--color-rule)}
+.stat-band .stat b{
+  display:block;
+  font-family:var(--font-display);
+  font-size:var(--text-2xl);
+  font-weight:500;
+  line-height:1.1;
+  color:var(--color-ink);
+}
+/* The denominator is context, not the number being read. */
+.stat-band .stat b span{color:var(--color-ink-3);font-size:var(--text-lg)}
+.stat-band .stat small{
+  display:block;
+  margin-top:var(--space-3xs);
+  font-size:var(--text-xs);
+  color:var(--color-ink-3);
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+}
+
+/* --- sections ------------------------------------------------------------ */
+
+/* These were `.panel`: a bordered card holding bordered rows, which is a card
+   inside a card. The heading now sits on the page and the card is the list
+   itself, so each section has exactly one level of depth. `.panel` is left
+   alone — `SubmissionPage` still uses it for its content boxes. */
+.home-section{margin-bottom:var(--space-lg)}
+.home-section:last-of-type{margin-bottom:0}
+.home-section-head{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:var(--space-sm);
+  margin-bottom:var(--space-sm);
+}
+.home-section h2{
+  font-family:var(--font-display);
+  font-size:var(--text-xl);
+  /* Space Grotesk 400 is the lightest weight the font import actually loads
+     (see design.md § Typography) — 300 would be synthesised by the browser. */
+  font-weight:400;
+  letter-spacing:-0.02em;
+  margin:0;
+}
+
+/* --- problem rows -------------------------------------------------------- */
+
+/* The card is the list. Rows inside it carry no chrome of their own and are
+   separated by hairlines, so the row no longer reads as a box within a box. */
+.problem-rows{
+  list-style:none;
+  margin:0;
+  padding:0;
+  border:var(--rule-hair) solid var(--color-rule);
+  background:var(--color-paper-2);
+  border-radius:var(--radius-card);
+  overflow:hidden;
+}
+.problem-rows>li+li{border-top:var(--rule-hair) solid var(--color-rule)}
+
+/* Three columns, not two: the progress readout now sits between the title and
+   the call to action. Overrides the original `1fr 140px auto` template, whose
+   middle column held the bar alone. */
+.problem-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:var(--space-md);
+  padding:var(--space-sm) var(--space-md);
+  border:0;
+  background:transparent;
+  border-radius:0;
+  color:inherit;
+  text-decoration:none;
+  transition:background var(--dur-short) var(--ease-out);
+}
+.problem-row:hover{background:var(--color-paper-3)}
+.problem-row:active{background:var(--color-rule)}
+.problem-row-main{min-width:0}
+
+/* The continue row is the page's primary action, so it is the one row that
+   keeps a surface and an accent edge. Everything under "up next" is quiet by
+   comparison — the two used to be identical in weight. */
+.problem-row.is-lead{
+  border:var(--rule-hair) solid var(--color-rule-2);
+  border-left-width:2px;
+  border-left-color:var(--color-accent-muted);
+  background:var(--color-paper-3);
+  border-radius:var(--radius-card);
+  padding:var(--space-md);
+  transition:border-left-color var(--dur-short) var(--ease-out),
+             background var(--dur-short) var(--ease-out);
+}
+.problem-row.is-lead:hover{border-left-color:var(--color-accent)}
+.problem-row.is-lead .problem-row-main b{
+  font-size:var(--text-lg);
+  letter-spacing:-0.01em;
+}
+
+/* The bar used to be the only signal, with no readout, so its length was the
+   whole message. The mono figure beside it makes the same number legible. */
+.problem-row-progress{
+  display:flex;
+  align-items:center;
+  gap:var(--space-xs);
+}
+.problem-row-progress .problem-row-bar{width:88px;flex:none}
+.problem-row-progress b{
+  min-width:32px;
+  text-align:right;
+  font-family:var(--font-mono);
+  font-size:var(--text-xs);
+  color:var(--color-ink-2);
+}
+
+/* The fill grows to its value once, when the row first paints. Expressed as a
+   transition from a starting style rather than an `@keyframes` animation, so
+   design.md's "exactly two animations exist in the app" stays literally true.
+   A browser without `@starting-style` simply paints the bar at final width. */
+.problem-row-bar i{
+  transform:scaleX(var(--fill,1));
+  transform-origin:left center;
+  transition:transform var(--dur-med) var(--ease-out);
+}
+@starting-style{
+  .problem-row-bar i{transform:scaleX(0)}
+}
+
+/* The arrow carries the hover instead of the whole row changing colour — the
+   row already does that, and two signals on one control is one too many. */
+.problem-row-cta{
+  display:inline-flex;
+  align-items:center;
+  gap:var(--space-3xs);
+  font-size:var(--text-sm);
+  color:var(--color-accent);
+  white-space:nowrap;
+}
+.problem-row-cta svg{transition:transform var(--dur-short) var(--ease-out)}
+.problem-row:hover .problem-row-cta svg{transform:translateX(3px)}
+
+/* --- closing line -------------------------------------------------------- */
+
+/* Was centred — and the only centred thing left on a left-flush column. */
+.home-foot{
+  margin:var(--space-xl) 0 0;
+  padding-top:var(--space-md);
+  border-top:var(--rule-hair) solid var(--color-rule);
+  text-align:left;
+}
+
+/* --- narrow screens ------------------------------------------------------ */
+
+@media(max-width:850px){
+  /* Three children now — title, readout, call to action. The original
+     two-column template would have wrapped the CTA onto a line of its own. The
+     bar itself is already hidden at this width by the Phase 2 block above. */
+  .problem-row{grid-template-columns:minmax(0,1fr) auto auto;gap:var(--space-xs)}
+}
+
+@media(max-width:640px){
+  .stat-band{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* The vertical rule only belongs between cells that sit side by side. */
+  .stat-band .stat:nth-child(odd){border-left:0}
+  .stat-band .stat:nth-child(n+3){border-top:var(--rule-hair) solid var(--color-rule)}
+  .stat-band .stat{padding:var(--space-sm)}
+  .problem-row{padding:var(--space-xs) var(--space-sm)}
+  .problem-row.is-lead{padding:var(--space-sm)}
+  .home-foot{margin-top:var(--space-lg)}
+}

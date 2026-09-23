@@ -16,6 +16,8 @@ import json
 from pathlib import Path
 from typing import Any, TypedDict
 
+from app.data.scaling import ScalingSpec, validate_scaling_spec
+
 PROBLEMS_PATH = Path(__file__).resolve().parent / "problems.json"
 
 
@@ -47,10 +49,18 @@ class Problem(TypedDict):
     description: str
     examples: list[Example]
     languages: dict[str, LanguageSpec]
+    #: How to build an input of size *n*, for measured complexity. Absent on a
+    #: problem whose inputs cannot be scaled, which is reported as "not
+    #: measured" rather than treated as an error.
+    scaling: ScalingSpec
 
 
 #: Fields returned by the list endpoint. `languages` is held back so the
 #: list payload does not carry four starter snippets per problem.
+#:
+#: `scaling` is held back from **both** projections on purpose: how the
+#: measurement inputs are built is an implementation detail of the reviewer,
+#: and `to_public` naming its fields explicitly is what keeps it private.
 PUBLIC_FIELDS = (
     "id",
     "title",
@@ -99,6 +109,17 @@ def supports_language(problem: Problem, language: str) -> bool:
     return language in problem["languages"]
 
 
+def scaling_spec(problem: Problem) -> ScalingSpec | None:
+    """How to build an input of size *n* for this problem, if it can be scaled.
+
+    ``None`` means the problem has no measurable ladder. That is a real state
+    rather than an error: a problem whose input cannot be grown honestly cannot
+    have its complexity measured, and the reviewer says so instead of guessing.
+    """
+    spec = problem.get("scaling")
+    return spec if isinstance(spec, dict) and spec.get("kind") else None
+
+
 def to_public(problem: Problem, *, include_languages: bool = False) -> dict[str, Any]:
     """Project a problem record down to the API-safe field set.
 
@@ -143,5 +164,13 @@ def validate_catalogue() -> list[str]:
                 problems.append(f"{where}/{language}: missing 'entrypoint'")
             if not spec.get("starter"):
                 problems.append(f"{where}/{language}: missing 'starter'")
+
+        # A missing or unusable scaling spec does not break the product - the
+        # problem still runs, it simply cannot have its complexity measured.
+        # It is reported here so the gap is visible in one place rather than
+        # discovered as a quiet "not measured" in a review months later.
+        scaling_fault = validate_scaling_spec(problem.get("scaling"))
+        if scaling_fault is not None:
+            problems.append(f"{where}: {scaling_fault}")
 
     return problems

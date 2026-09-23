@@ -148,6 +148,25 @@ TEST_TIMEOUT_SECONDS: float = _get_float("TEST_TIMEOUT_SECONDS", 3.0)
 #: Hard ceiling for the whole submission, in seconds.
 SUBMISSION_TIMEOUT_SECONDS: float = _get_float("SUBMISSION_TIMEOUT_SECONDS", 20.0)
 
+#: Ceiling for a *measurement* ladder, in seconds. Deliberately larger than
+#: ``SUBMISSION_TIMEOUT_SECONDS``.
+#:
+#: A test run must be quick because a student is waiting on it, and a slow
+#: answer is a failure. A measurement ladder is the opposite: it runs the same
+#: code at three sizes and the slowness at the largest size *is the signal*, so
+#: cutting it short loses the very data the classification rests on. On an idle
+#: machine the default ladder costs about 2.2s for a quadratic solution; this is
+#: a backstop, not the expected cost.
+#:
+#: It is a backstop rather than a tuning knob on purpose. Measured 2026-09-23
+#: with C: at 100% full, the *same* code at the *same* size came in **34x**
+#: slower than the recorded ladder - 1.33s against 39ms. No ladder survives that,
+#: and shrinking the sizes to fit a pathological machine would only hide it.
+#: ``measure_scaling`` therefore reports a missing measurement per size instead
+#: of inventing one, and the classifier decides whether a partial ladder is
+#: enough.
+SCALING_TIMEOUT_SECONDS: float = _get_float("SCALING_TIMEOUT_SECONDS", 40.0)
+
 #: Python interpreter used to execute student code. Defaults to the
 #: interpreter running the API server.
 PYTHON_EXECUTABLE: str = os.getenv("PYTHON_EXECUTABLE", "").strip()

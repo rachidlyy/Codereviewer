@@ -553,6 +553,65 @@ and the plan's own §13 forbids the model from inventing things. So measure it i
 - `ReviewComplexity` gains `measured_time` / `measured_space` alongside the existing
   `current_*`/`suggested_*` fields, so the UI can show a measured value next to the suggested one.
 
+#### Prerequisites, discovered 2026-09-23
+
+Four things this phase needed that did not exist. **1, 2 and 4 are done**; **3 is the design decision
+this phase still has to make.**
+
+**DONE — 1. Every problem now declares how to scale its input.** `app/data/scaling.py` owns a small
+spec language and `problems.json` gives each of the twelve problems a `scaling: {"kind": ...}` entry
+naming one of ten kinds. A scaling spec is deliberately *not* a test case: it states the shape of an
+input of size *n* and carries no expected value, because a measurement only needs the student's code
+to run. Several inputs are chosen so that a solution does its **typical** work rather than bailing out
+early — Two Sum's target is reachable only from the last two elements, so a quadratic scan cannot find
+it on the first pass and measure as if it were constant; Valid Anagram gets two strings that really
+are anagrams; Product of Array Except Self gets all ones, because with values of 2 or more the running
+product grows to *n* bits and multiplying those is O(n²) in **bit** operations even for the intended
+linear solution — a false quadratic signal produced entirely by arithmetic rather than by the
+algorithm. `check_runner` section 15 asserts the payload grows with *n* and that each spec builds
+exactly the arguments the signature declares.
+
+**DONE — 2. `code_runner.measure_scaling()` is the public ladder.** It runs the whole ladder in **one
+container** and returns a `ScalingMeasurement` — raw numbers, deliberately uninterpreted, so the
+classification rule can change later without re-running anything. A size that produced no measurement
+is `None` and never `0.0`: a zero reads as an infinitely fast solution, which would classify as
+constant time — the opposite of the truth for a submission that timed out. `_execute` gained a
+keyword-only `budget`, because a ladder is *expected* to be slow at its largest size and
+`SUBMISSION_TIMEOUT_SECONDS` would cut it short.
+
+**DONE — 4. Measurement sizes are separate from the performance case.**
+`DEFAULT_SIZES = (4_000, 16_000, 64_000)`, plus a separate and longer `SCALING_TIMEOUT_SECONDS` (40s)
+backstop. Neither is tuned — see the trap below.
+
+**OPEN — 3. The classification rule must be relative, not absolute.** This is the unmitigated half of
+the warning recorded under Phase 2, and it is now the whole of the remaining work. Problem 1's own
+*optimal* solution — a hash set, genuinely O(n) — measures **2.54× / 2.68× / 3.15× per doubling
+against an ideal 2.0×**, because hash-table growth is allocation-bound and rehashes in steps. Any
+classifier using a fixed threshold calls that superlinear, i.e. tells a student their optimal solution
+is quadratic. The fix is to measure a known-linear baseline **on the same ladder, in the same
+container, in the same run** and classify the student's growth *relative to that*, which also cancels
+machine load and JIT state. `measure_scaling` takes `code` as a parameter precisely so a probe can be
+passed to it. Getting this wrong is worse than not shipping the feature: a confidently wrong
+complexity claim is exactly what plan §13 exists to prevent.
+
+#### A third instance of the same trap, found while building this
+
+**Do not tune these numbers yet.** Measured 2026-09-23 while building items 1 and 2, the *same* code
+at the *same* size came in **34× slower** than the recorded ladder — 1.33s against 39ms at n=8,000 —
+and an A/B of the two input mechanisms (the old `generate.range` and the new `scaling` kind) agreed to
+within 7%, so the input was not the cause. **C: was at 100% full: 86 MB free of 232 GB.** Docker
+Desktop and Windows both thrash when the system drive is full.
+
+This is the third time this project has paid for picking a number off a loaded machine, and the first
+time the cause was identified rather than only observed. Three consequences, all deliberate:
+
+- `DEFAULT_SIZES` and `SCALING_TIMEOUT_SECONDS` are **configurable and untuned** — a shape, not a
+  measurement.
+- `measure_scaling` **reports a missing measurement per size instead of inventing one**, and section 15
+  **skips** (with the harness' own reason) rather than fails when a ladder cannot complete: a machine
+  that cannot finish a ladder is an environment fault, not a code defect.
+- The real numbers must be re-measured with **C: clear**, before item 3 picks any threshold.
+
 **Exit:** the nested-loop submission is reported as measured superlinear, with the two measurements
 visible in the review; the review cites those numbers rather than a model guess; a Python-only
 static finding appears as a separate issue.

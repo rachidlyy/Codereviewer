@@ -31,11 +31,12 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Sequence
 from uuid import uuid4
 
 from app import config
-from app.data.problems import Problem, languages_for
+from app.data.problems import Problem, languages_for, scaling_spec
+from app.data.scaling import DEFAULT_REPS, DEFAULT_SIZES, BadScaling, resolve_scaling_args
 from app.data.test_cases import BadCase, TestCase, get_test_cases, resolve_args
 from app.services._runner_harness import RESULT_SENTINEL
 
@@ -603,13 +604,21 @@ def _docker_problem(completed: subprocess.CompletedProcess[str], image: str, lan
 
 
 def _execute_docker(
-    cases: list[TestCase], code: str, entrypoint: str, language: str
+    cases: list[TestCase],
+    code: str,
+    entrypoint: str,
+    language: str,
+    *,
+    budget: float | None = None,
 ) -> ExecutionResult:
     """Run every case in one container.
 
     Returns one ``(outcome, elapsed)`` per case plus the container's own
     memory facts.
     """
+    #: The whole-submission ceiling, normally from config. ``budget`` overrides
+    #: it for measurement ladders, which are expected to be slow.
+    submission_budget = budget if budget is not None else config.SUBMISSION_TIMEOUT_SECONDS
     image = config.runner_image(language)
     prepared: list[dict[str, Any]] = []
     pre_failed: dict[int, dict[str, Any]] = {}
@@ -645,7 +654,7 @@ def _execute_docker(
         # The container enforces the whole-submission budget itself, so it ends
         # on its own terms and reports every case. The host-side backstop below
         # is only for a container that hangs outright.
-        "budget": config.SUBMISSION_TIMEOUT_SECONDS,
+        "budget": submission_budget,
         "cases": prepared,
     }
 
@@ -659,7 +668,7 @@ def _execute_docker(
         name = f"codereviewer-run-{uuid4().hex[:12]}"
         # The per-case limits are enforced inside the container, so this is only
         # a backstop against the container hanging outright.
-        backstop = config.SUBMISSION_TIMEOUT_SECONDS + config.DOCKER_STARTUP_GRACE_SECONDS
+        backstop = submission_budget + config.DOCKER_STARTUP_GRACE_SECONDS
 
         completed: subprocess.CompletedProcess[str] | None = None
         try:
@@ -761,11 +770,24 @@ class ExecutionResult(NamedTuple):
 
 
 def _execute(
-    cases: list[TestCase], code: str, entrypoint: str, language: str = "python"
+    cases: list[TestCase],
+    code: str,
+    entrypoint: str,
+    language: str = "python",
+    *,
+    budget: float | None = None,
 ) -> ExecutionResult:
-    """Dispatch to the configured backend."""
+    """Dispatch to the configured backend.
+
+    ``budget`` overrides the whole-submission ceiling for this call only, and
+    exists for measurement. A scaling ladder is *expected* to be slow at its
+    largest size - that slowness is the signal - so it needs a longer leash than
+    a test run, and cutting it short would silently lose the very points the
+    classification depends on. The host backend ignores it, having no container
+    to enforce it in.
+    """
     if config.runner_backend() == "docker":
-        return _execute_docker(cases, code, entrypoint, language)
+        return _execute_docker(cases, code, entrypoint, language, budget=budget)
     return ExecutionResult(
         outcomes=_execute_subprocess(cases, code, entrypoint, language),
         sandbox=None,
@@ -985,3 +1007,133 @@ def run_submission(problem: Problem, code: str, language: str = "python") -> dic
         "error": _summarise_error(tests),
         "sandbox": execution.sandbox,
     }
+
+
+class ScalingMeasurement(NamedTuple):
+    """One submission's timing ladder: raw numbers, deliberately uninterpreted.
+
+    Deciding what the numbers *mean* is ``services/complexity.py``'s job. Keeping
+    the two apart is what lets the instrument be tested on its own, and lets a
+    classification rule change later without re-running anything.
+    """
+
+    sizes: list[int]
+    #: Best-of-``reps`` seconds spent inside the student's own code, per size.
+    #: ``None`` where that size produced no measurement - a timeout, a crash, or
+    #: a budget that ran out before the case started. Never zero-filled, because
+    #: a missing measurement and an instantaneous one are different facts and a
+    #: zero would read as an infinitely fast solution.
+    compute: list[float | None]
+    #: Why a size has no measurement, in the harness' own words.
+    errors: list[str | None]
+    #: True when every size produced a number.
+    ok: bool
+    #: Why not, when ``ok`` is False.
+    message: str | None
+
+
+def measure_scaling(
+    problem: Problem,
+    code: str,
+    language: str = "python",
+    *,
+    sizes: Sequence[int] | None = None,
+    reps: int = DEFAULT_REPS,
+    budget: float | None = None,
+) -> ScalingMeasurement:
+    """Time a submission at several input sizes, for measured complexity.
+
+    Returns the raw ladder and never raises for a merely *slow* or *wrong*
+    submission. Raises :class:`UnsupportedLanguage` for a language that cannot
+    be run at all, or that this problem does not offer - the same two refusals
+    :func:`run_submission` makes, so callers handle them once.
+
+    Why this is public
+    ------------------
+    ``run_submission`` runs the catalogue's fixed cases and nothing else, so
+    there was previously no way to time a submission at a size of your choosing.
+    The only ladder in the codebase lived in ``check_runner`` and reached into
+    the private ``_execute``. Execution belongs in this module, so the ladder
+    does too, and ``complexity.py`` can measure without touching a private
+    helper.
+
+    ``code`` does not have to be correct, and the generated inputs carry no
+    expected value at all - a measurement only needs the student's code to
+    *run*. Passing a known-linear probe as ``code`` is the intended way to get
+    the baseline a submission should be compared against.
+    """
+    resolved = resolve_language(problem, language)
+    entrypoint = languages_for(problem)[resolved]["entrypoint"]
+
+    # A measurement ladder gets a longer leash than a test run, because the
+    # slowness at the largest size is the signal rather than a failure. See
+    # SCALING_TIMEOUT_SECONDS for why it is a backstop and not a tuned number.
+    effective_budget = budget if budget is not None else config.SCALING_TIMEOUT_SECONDS
+
+    # Ascending, and de-duplicated. Ascending matters: if the budget runs out
+    # partway through, the cheap small sizes have already reported and only the
+    # expensive tail is lost. Running largest-first would throw away every point
+    # to learn one.
+    ladder = sorted({int(n) for n in (sizes if sizes is not None else DEFAULT_SIZES)})
+
+    def unmeasured(message: str) -> ScalingMeasurement:
+        blanks: list[None] = [None] * len(ladder)
+        return ScalingMeasurement(ladder, list(blanks), list(blanks), False, message)
+
+    if not ladder or any(n <= 0 for n in ladder):
+        return unmeasured(f"Ladder sizes must be positive integers, got {ladder}.")
+
+    spec = scaling_spec(problem)
+    if spec is None:
+        return unmeasured(
+            "This problem declares no 'scaling' spec, so its complexity cannot be measured."
+        )
+
+    try:
+        cases: list[TestCase] = [
+            {
+                "name": f"n={n}",
+                "args": resolve_scaling_args(spec, n),
+                # Generous on purpose: this measures growth, so a timeout would
+                # turn a slow measurement into a missing one. The whole-ladder
+                # budget is the real ceiling.
+                "timeout": float(effective_budget),
+            }
+            for n in ladder
+        ]
+    except BadScaling as exc:
+        return unmeasured(str(exc))
+
+    # Fail fast on a syntax error: every size would fail identically, and this
+    # costs nothing instead of a container. Python only - see `check_syntax`.
+    syntax_error = check_syntax(code, resolved)
+    if syntax_error is not None:
+        return unmeasured(syntax_error["detail"])
+
+    best: list[float | None] = [None] * len(ladder)
+    errors: list[str | None] = [None] * len(ladder)
+
+    for _ in range(max(int(reps), 1)):
+        outcomes = _execute(cases, code, entrypoint, resolved, budget=effective_budget).outcomes
+        for index, (outcome, _elapsed) in enumerate(outcomes):
+            if index >= len(ladder):
+                break
+            compute = outcome.get("compute")
+            # "Ran" means the harness produced a time and raised nothing. A case
+            # that merely returned the wrong answer is still a valid
+            # measurement - correctness is not this function's business.
+            if outcome.get("error_type") is None and compute is not None:
+                seconds = float(compute)
+                # Best-of-N, not the mean: the noise here is one-sided. A
+                # measurement is only ever slowed down by the machine.
+                best[index] = seconds if best[index] is None else min(best[index], seconds)
+            else:
+                errors[index] = outcome.get("message") or (
+                    f"no measurement ({outcome.get('error_type') or 'unknown'})"
+                )
+
+    missing = [ladder[i] for i, value in enumerate(best) if value is None]
+    if missing:
+        listed = ", ".join(str(n) for n in missing)
+        return ScalingMeasurement(ladder, best, errors, False, f"No measurement at n={listed}.")
+    return ScalingMeasurement(ladder, best, errors, True, None)

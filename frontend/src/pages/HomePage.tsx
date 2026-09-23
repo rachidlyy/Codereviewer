@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { CircleAlert } from 'lucide-react';
+import { ArrowRight, CircleAlert } from 'lucide-react';
 
 import type { ProblemProgress, Progress } from '../types';
 
@@ -22,25 +23,55 @@ function bestPercent(problem: ProblemProgress): number {
 /**
  * One problem, as a row that links into the workspace.
  *
- * Used for both the "continue" card and the "up next" list, which differ only
- * in the wording of the call to action.
+ * Used for both the "continue" row and the "up next" list, which differ only in
+ * the wording of the call to action and in `lead`. The continue row is the
+ * page's primary action, so it carries the surface and the accent edge; the
+ * rows under "up next" stay quiet.
  */
-function ProblemRow({ problem, cta }: { problem: ProblemProgress; cta: string }) {
+function ProblemRow({
+  problem,
+  cta,
+  lead = false,
+}: {
+  problem: ProblemProgress;
+  cta: string;
+  lead?: boolean;
+}) {
+  const percent = bestPercent(problem);
+  const passed = problem.total_tests > 0 ? `${problem.best_passed}/${problem.total_tests}` : '—';
+
   return (
-    <Link className="problem-row" to={`/problems/${problem.problem_id}`}>
-      <div className="problem-row-main">
+    <Link
+      className={lead ? 'problem-row is-lead' : 'problem-row'}
+      to={`/problems/${problem.problem_id}`}
+    >
+      <span className="problem-row-main">
         <b>{problem.title}</b>
+        {/* `best x/y` used to sit here as well as on the bar. The figure beside
+            the bar is the same number, so this line keeps only the meta the bar
+            cannot carry. */}
         <small>
           {problem.difficulty}
           {problem.attempted
-            ? ` · ${problem.attempts} ${problem.attempts === 1 ? 'run' : 'runs'} · best ${problem.best_passed}/${problem.total_tests}`
+            ? ` · ${problem.attempts} ${problem.attempts === 1 ? 'run' : 'runs'}`
             : ' · not attempted yet'}
         </small>
-      </div>
-      <div className="problem-row-bar">
-        <i style={{ width: `${bestPercent(problem)}%` }} />
-      </div>
-      <span className="problem-row-cta">{cta}</span>
+      </span>
+
+      <span className="problem-row-progress">
+        {/* The bar is decoration; the figure beside it carries the value as
+            text, so nothing here needs announcing. `--fill` drives a scaleX
+            transform — animating width would relayout on every frame. */}
+        <span className="problem-row-bar" aria-hidden="true">
+          <i style={{ '--fill': percent / 100 } as CSSProperties} />
+        </span>
+        <b>{passed}</b>
+      </span>
+
+      <span className="problem-row-cta">
+        {cta}
+        <ArrowRight size={14} />
+      </span>
     </Link>
   );
 }
@@ -53,6 +84,10 @@ function ProblemRow({ problem, cta }: { problem: ProblemProgress; cta: string })
  * *least*, and why `GET /api/progress` returns the whole catalogue instead of
  * only the attempted problems: a dashboard that can only describe work already
  * done has nothing to say to someone opening the app for the first time.
+ *
+ * Composed as one centred column. The figures, the section headings and the
+ * rows all share its left edge, and each section carries exactly one level of
+ * card depth — the list is the card, the heading sits on the page.
  */
 export default function HomePage({ name, progress, loading, error, onRetry }: Props) {
   const problems = progress?.problems ?? [];
@@ -114,7 +149,10 @@ export default function HomePage({ name, progress, loading, error, onRetry }: Pr
 
       {progress && (
         <>
-          <section className="stat-row">
+          {/* Was four bordered tiles with centred text. One band reads as a
+              single set of figures rather than four competing cards, and the
+              numbers sit on the column's left edge like everything else. */}
+          <section className="stat-band" aria-label="Your progress at a glance">
             <div className="stat">
               <b>
                 {progress.solved_problems}
@@ -140,16 +178,16 @@ export default function HomePage({ name, progress, loading, error, onRetry }: Pr
           </section>
 
           {lastTouched && (
-            <section className="panel">
-              <div className="panel-head">
+            <section className="home-section">
+              <div className="home-section-head">
                 <h2>Pick up where you left off</h2>
               </div>
-              <ProblemRow problem={lastTouched} cta="Continue" />
+              <ProblemRow problem={lastTouched} cta="Continue" lead />
             </section>
           )}
 
-          <section className="panel">
-            <div className="panel-head">
+          <section className="home-section">
+            <div className="home-section-head">
               <h2>{lastTouched ? 'Up next' : 'Start here'}</h2>
               <Link className="ghost" to="/problems">
                 All problems

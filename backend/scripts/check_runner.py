@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import config, db  # noqa: E402
 from app.data import problems as problem_data  # noqa: E402
+from app.data import scaling  # noqa: E402
 from app.data import test_cases as test_case_data  # noqa: E402
 from app.deps import current_user  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
@@ -535,6 +536,55 @@ NAIVE_JS = _code(
 )
 
 PERF_CASE_NAME = "Large input (performance)"
+
+#: A known-linear probe, one per language, for section 15.
+#:
+#: Deliberately **not** the problem's own optimal solution. That solution builds
+#: a hash set, and the plan records that its growth is allocation-bound and
+#: lumpy - 2.54x / 2.68x / 3.15x per doubling against an ideal 2.0x - so using
+#: it as the "linear" side of a comparison measures the constant factors rather
+#: than the algorithm. A plain accumulation over the same input has nothing to
+#: allocate and nothing to rehash, so it reads as the linear baseline the
+#: comparison needs.
+#:
+#: The returned value is wrong on purpose. A measurement never checks
+#: correctness, and a probe that had to be *correct* would have to be a solution
+#: - which is the thing being avoided.
+LINEAR_PROBE = _code(
+    """
+    def containsDuplicate(nums):
+        total = 0
+        for value in nums:
+            total += value
+        return total
+    """
+)
+
+LINEAR_PROBE_JS = _code(
+    """
+    function containsDuplicate(nums) {
+      let total = 0;
+      for (const value of nums) total += value;
+      return total;
+    }
+    """
+)
+
+#: Span used by section 15 to check the ladder responds to n.
+#:
+#: Starts at 8,000 because that is the floor section 5b established for
+#: JavaScript: below it V8 is still interpreting the inner loop and a naive
+#: solution reads *sublinear*. Stops at 32,000 because the naive solution has to
+#: be affordable to measure on the machines this runs on - at 64,000 it needs
+#: ~2s idle and could not finish inside the budget at all on 2026-09-23, when
+#: C: was full and the same code ran 34x slower than the recorded ladder.
+#:
+#: A wider span is *not* automatically better here: over 8,000 -> 64,000 the
+#: separation between the naive solution and a linear probe got **worse**, not
+#: better (25.6x against 18.4x), because a larger input is throttled harder by
+#: the container's one-CPU quota, so each measurement is inflated by an amount
+#: that depends on its own size.
+SIGNAL_SIZES = (8_000, 32_000)
 
 #: Wall-clock ceiling for a correct submission, per backend. **This is a
 #: catastrophic-slowness guard, not a performance target** - the real structural
@@ -1856,6 +1906,199 @@ def main() -> int:
                     "the throwaway user's runs are cleaned up",
                     f"{left} row(s) left",
                 )
+
+    print("\n=== 15. Measured complexity has an input to scale (phase 5) ===")
+    # Phase 5 measures growth by running a submission at two or more input
+    # sizes. Until this section existed, exactly **one** of the twelve problems
+    # declared a `generate` case, so a ladder could be built for Contains
+    # Duplicate and nothing else - and the other eleven would have reported
+    # "not measured" while looking perfectly healthy. The dangerous version of
+    # this bug is silent, so it is asserted rather than eyeballed.
+    #
+    # What this section does NOT do is assert a *classification*. Turning a
+    # ladder into "this is O(n^2)" is phase 5's own job, and the plan already
+    # records why that is delicate: problem 1's optimal hash-set solution reads
+    # 2.54-3.15x per doubling against an ideal 2.0x, so a fixed threshold would
+    # call a correct answer quadratic. Here we prove the instrument works; the
+    # verdict gets its own tests.
+    catalogue = problem_data.list_problems()
+
+    unscalable = [p["id"] for p in catalogue if problem_data.scaling_spec(p) is None]
+    check(
+        not unscalable,
+        "every problem declares how to build an input of size n",
+        f"{len(catalogue) - len(unscalable)}/{len(catalogue)} scalable"
+        + (f", missing: {unscalable}" if unscalable else ""),
+    )
+
+    scaling_faults = [f for f in problem_data.validate_catalogue() if "scaling" in f]
+    check(
+        not scaling_faults,
+        "and every spec names a kind that exists and actually builds an input",
+        "; ".join(scaling_faults)[:220]
+        if scaling_faults
+        else f"{len(scaling.SCALING_KINDS)} kinds defined",
+    )
+
+    # The input has to grow with n, or the ladder measures the same work three
+    # times and calls it flat. Checked on the serialised payload, which is also
+    # what actually crosses into the container.
+    import json as _json  # noqa: PLC0415 - only needed for this measurement
+
+    flat, arity_wrong = [], []
+    for problem in catalogue:
+        spec = problem_data.scaling_spec(problem)
+        if spec is None:
+            continue
+        small = scaling.resolve_scaling_args(spec, 500)
+        large = scaling.resolve_scaling_args(spec, 2000)
+        if len(_json.dumps(large)) <= len(_json.dumps(small)):
+            flat.append(problem["id"])
+        declared = len(problem["languages"]["python"]["params"])
+        if len(small) != declared:
+            arity_wrong.append(f"#{problem['id']} builds {len(small)} args, signature has {declared}")
+    check(
+        not flat,
+        "the generated input really grows with n, for every problem",
+        f"payload grows for {len(catalogue) - len(flat)}/{len(catalogue)}"
+        + (f", flat: {flat}" if flat else ""),
+    )
+    check(
+        not arity_wrong,
+        "and each spec builds exactly the arguments the signature declares",
+        "; ".join(arity_wrong)[:220] if arity_wrong else f"{len(catalogue)} signatures matched",
+    )
+
+    # How the measurement inputs are built is the reviewer's business, not the
+    # client's. `to_public` names its fields explicitly, so this asserts that
+    # `scaling` was not quietly added to either projection.
+    leaked = [
+        p["id"] for p in catalogue if "scaling" in problem_data.to_public(p, include_languages=True)
+    ]
+    check(
+        not leaked,
+        "the scaling spec never reaches the API",
+        f"clean across {len(catalogue)} problems" if not leaked else f"leaked on {leaked}",
+    )
+
+    # The load-bearing check: every generated input must be one the problem's
+    # own reference solution accepts. A spec can name a real kind and still
+    # build something the signature cannot take - a flat list where the problem
+    # wants pairs of pairs, say - and nothing above would notice.
+    #
+    # n=200 on purpose: the input is tiny so the cost is container lifecycle
+    # rather than student code, and what is being proved is acceptance, not
+    # speed. One container per problem.
+    refused = []
+    for problem in catalogue:
+        solution = REFERENCE.get(problem["id"])
+        if not solution:
+            continue
+        measurement = code_runner.measure_scaling(
+            problem, solution, "python", sizes=(200,), reps=1
+        )
+        if not measurement.ok:
+            refused.append(f"#{problem['id']}: {measurement.message}")
+    check(
+        not refused,
+        "every problem's reference solution runs on its own generated ladder",
+        "; ".join(refused)[:240] if refused else f"{len(catalogue)} problems, one ladder each",
+    )
+
+    # A missing measurement must be None, never 0.0: a zero reads as an
+    # infinitely fast solution, which would classify as constant time - the
+    # opposite of the truth for a submission that timed out.
+    broken = code_runner.measure_scaling(
+        problem_data.get_problem(1), "def containsDuplicate(nums)\n    return False\n", "python",
+        sizes=(500,), reps=1,
+    )
+    check(
+        not broken.ok and all(value is None for value in broken.compute),
+        "a submission that cannot run reports no measurement rather than zero",
+        f"ok={broken.ok} compute={broken.compute} message={broken.message}",
+    )
+
+    try:
+        code_runner.measure_scaling(problem_data.get_problem(1), "x", "cobol")
+    except UnsupportedLanguage as exc:
+        check(True, "measuring refuses an unsupported language, like running does", str(exc)[:90])
+    except Exception as exc:  # noqa: BLE001 - any other type is the failure
+        check(False, "measuring refuses an unsupported language, like running does", repr(exc)[:120])
+    else:
+        check(
+            False,
+            "measuring refuses an unsupported language, like running does",
+            "no exception raised",
+        )
+
+    # And the ladder has to carry a usable signal. This is the one check here
+    # that asserts something about the *instrument* rather than the data: a
+    # quadratic solution must grow visibly faster than a known-linear probe over
+    # the same span.
+    #
+    # The margin is 2x, which is not a tuned constant but half the *ideal*
+    # ratio: over a 4x span a quadratic solution grows ~16x against a linear
+    # ~4x, so 2x is a 2x safety margin on theory. Measured 2026-09-23 the
+    # separation was 15.8x vs 4.0x in Python and 15.0x vs 5.0x in JavaScript,
+    # with the probe reading near-ideal at 4.0x and 5.0x against the predicted
+    # 4x - so the margin is not close to binding.
+    #
+    # An incomplete ladder is **skipped, not failed**: a machine that cannot
+    # finish one has an environment fault, which is exactly what happened on
+    # 2026-09-23 when C: was full and Docker returned `exit 125` on container
+    # creation. The same run's other sections failed for that reason too.
+    demo = problem_data.get_problem(1)
+    ladder = {
+        ("python", "naive"): code_runner.measure_scaling(
+            demo, NAIVE, "python", sizes=SIGNAL_SIZES, reps=1
+        ),
+        ("python", "linear"): code_runner.measure_scaling(
+            demo, LINEAR_PROBE, "python", sizes=SIGNAL_SIZES, reps=1
+        ),
+        ("javascript", "naive"): code_runner.measure_scaling(
+            demo, NAIVE_JS, "javascript", sizes=SIGNAL_SIZES, reps=1
+        ),
+        ("javascript", "linear"): code_runner.measure_scaling(
+            demo, LINEAR_PROBE_JS, "javascript", sizes=SIGNAL_SIZES, reps=1
+        ),
+    }
+
+    def growth(measurement) -> float | None:
+        """How much slower the largest size was than the smallest."""
+        if not measurement.ok:
+            return None
+        first, last = measurement.compute[0], measurement.compute[-1]
+        if not first or last is None:
+            return None
+        return last / first
+
+    # `ladder` is keyed by tuples, so the failing keys must stay tuples until
+    # they are formatted. This line previously built the list as strings and
+    # then indexed `ladder` with them, which raised KeyError - meaning the
+    # *skip* path, written for exactly the loaded-machine case it was hit by,
+    # crashed the suite instead of reporting. Never exercised until 2026-09-23.
+    incomplete = [key for key, measurement in ladder.items() if not measurement.ok]
+    if incomplete:
+        labels = ", ".join(f"{lang}/{kind}" for lang, kind in incomplete)
+        reasons = "; ".join(
+            f"{lang}/{kind}: {ladder[(lang, kind)].message}" for lang, kind in incomplete
+        )
+        record(
+            SKIP,
+            "the ladder separates a quadratic solution from a linear probe",
+            f"ladder did not complete ({labels}) - {reasons[:160]}",
+        )
+    else:
+        for language in ("python", "javascript"):
+            naive_growth = growth(ladder[(language, "naive")])
+            linear_growth = growth(ladder[(language, "linear")])
+            assert naive_growth is not None and linear_growth is not None
+            check(
+                naive_growth > 2 * linear_growth,
+                f"the ladder separates quadratic from linear in {language}",
+                f"naive grew {naive_growth:.1f}x vs a linear probe's {linear_growth:.1f}x "
+                f"over n={SIGNAL_SIZES[0]}->{SIGNAL_SIZES[1]}",
+            )
 
     print("\n" + "=" * 66)
     counts = {s: sum(1 for r in results if r[0] == s) for s in (PASS, FAIL, SKIP)}

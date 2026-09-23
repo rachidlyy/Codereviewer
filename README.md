@@ -208,8 +208,8 @@ silently empty), per-case timing and captured stdout must come back, and the
 comparison and language-refusal rules must behave. **This is the fastest way
 to answer "did I just break the runner?"**
 
-It runs in fourteen numbered sections and needs no server, token, quota or test
-framework. Five are worth knowing about by name:
+It runs in fifteen numbered sections and needs no server, token, quota or test
+framework. Six are worth knowing about by name:
 
 - **Section 10** proves the sandbox actually isolates: student code cannot reach
   the network, a runaway allocation is stopped and told *why*, an infinite loop
@@ -233,6 +233,13 @@ framework. Five are worth knowing about by name:
   where a field renamed on one side is a 500 that no other section would see. It
   also proves the route is genuinely gated before overriding it, so it cannot
   quietly become an unauthenticated test that passes against a broken gate.
+- **Section 15** checks that measured complexity has something to measure: every
+  problem declares how to build an input of size *n*, the generated payload
+  really grows with *n*, each spec builds exactly the arguments its signature
+  declares, the spec never reaches the API, and every problem's reference
+  solution runs on its own generated ladder — one container each. It does
+  **not** assert a complexity classification; that is a later phase's job, and
+  the margin it would need cannot be chosen on a loaded machine.
 
 Sections 10 and the OOM half of 12 self-skip under `RUNNER_BACKEND=subprocess`,
 where there is no sandbox to probe — and the OOM probe in particular *must* skip
@@ -410,8 +417,15 @@ Python, JavaScript, Java and C++:
 
 ### Adding a problem
 
-Add an entry to `backend/app/data/problems.json` with a `languages` map, add
-its cases to `test_cases.json`, then run `check_runner.py` — it validates both
-files and will tell you what is missing. A language absent from a problem's
-`languages` map is one that problem cannot be attempted in, which is what lets
-the catalogue grow language by language.
+Add an entry to `backend/app/data/problems.json` with a `languages` map and a
+`scaling` spec, add its cases to `test_cases.json`, then run `check_runner.py` —
+it validates both files and will tell you what is missing. A language absent
+from a problem's `languages` map is one that problem cannot be attempted in,
+which is what lets the catalogue grow language by language.
+
+The `scaling` spec says how to build an **input of size *n***, so the reviewer
+can time a submission at several sizes and measure how it grows. It names one of
+the kinds in `backend/app/data/scaling.py`, and carries no expected value at all
+— a measurement only needs the student's code to *run*, never to be right. A
+problem with no `scaling` spec still works; it simply cannot have its complexity
+measured, and `check_runner` reports that rather than treating it as an error.
