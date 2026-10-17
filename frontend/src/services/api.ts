@@ -2,22 +2,38 @@
  * Thin client for the CodeReviewer backend.
  *
  * This module is the only place in the frontend that knows about HTTP. Every
- * screen goes through these four calls, which map one-to-one onto the API
+ * screen goes through these calls, which map one-to-one onto the API
  * contract in the plan:
  *
- *   fetchProblems()  -> GET  /api/problems
- *   fetchProblem()   -> GET  /api/problems/{id}
- *   runCode()        -> POST /api/submissions/run
- *   requestReview()  -> POST /api/reviews
+ *   fetchProblems()    -> GET  /api/problems
+ *   fetchProblem()     -> GET  /api/problems/{id}
+ *   runCode()          -> POST /api/submissions/run
+ *   requestReview()    -> POST /api/reviews
+ *   fetchSubmissions() -> GET  /api/submissions
+ *   fetchSubmission()  -> GET  /api/submissions/{id}
+ *   fetchProgress()    -> GET  /api/progress
+ *   fetchSavedCode()   -> GET  /api/saved-code/{id}
+ *   saveCode()         -> PUT  /api/saved-code/{id}
+ *   fetchHealth()      -> GET  /api/health
+ *   fetchMe()          -> GET  /api/auth/me
+ *
+ * Every request carries the Clerk session token as a Bearer header when one
+ * is available, so the callers below do not each have to remember to add it.
  */
 
+import { getSessionToken } from './clerkToken';
 import type {
   Health,
   Problem,
   ProblemSummary,
+  Progress,
   Review,
   RunResult,
+  SavedCode,
+  SubmissionDetail,
+  SubmissionSummary,
   TestResultSummary,
+  User,
 } from '../types';
 
 /** Backend base URL. Override with VITE_API_URL in a `.env` file. */
@@ -38,12 +54,21 @@ const OFFLINE_MESSAGE =
   'Could not reach the CodeReviewer API. Make sure the backend is running on ' + API_BASE + '.';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Attach the Clerk session token when there is one. The getter is
+  // registered by <AuthTokenBridge/>; see services/clerkToken.ts for why this
+  // cannot call useAuth() directly.
+  const token = await getSessionToken();
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let response: Response;
 
   try {
     response = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
       ...init,
+      // Caller-supplied headers win, so a future endpoint can override.
+      headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
     });
   } catch {
     // fetch only rejects on network-level failure, i.e. the backend is down.
@@ -91,10 +116,18 @@ export function runCode(
   });
 }
 
+/**
+ * Review a run.
+ *
+ * `submissionId` is the id returned by `runCode`. Passing it lets the backend
+ * record the review against that run so it appears in history; omitting it
+ * still returns a review, it just is not saved.
+ */
 export function requestReview(
   problemId: number,
   code: string,
   testResult: TestResultSummary,
+  submissionId: number | null = null,
 ): Promise<Review> {
   return request<Review>('/api/reviews', {
     method: 'POST',
@@ -102,12 +135,59 @@ export function requestReview(
       problem_id: problemId,
       code,
       test_result: testResult,
+      submission_id: submissionId,
     }),
+  });
+}
+
+/** The student's own runs, newest first. Pass a problem id to filter. */
+export function fetchSubmissions(problemId?: number): Promise<SubmissionSummary[]> {
+  const query = problemId === undefined ? '' : `?problem_id=${problemId}`;
+  return request<SubmissionSummary[]>(`/api/submissions${query}`);
+}
+
+/** One saved run, including its code, test results and review. */
+export function fetchSubmission(submissionId: number): Promise<SubmissionDetail> {
+  return request<SubmissionDetail>(`/api/submissions/${submissionId}`);
+}
+
+/** Per-problem progress across the whole catalogue, plus overall counts. */
+export function fetchProgress(): Promise<Progress> {
+  return request<Progress>('/api/progress');
+}
+
+/**
+ * The student's saved draft for a problem, in one language.
+ *
+ * `code` comes back null when nothing has been saved in that language, which is
+ * where every problem starts. A draft is a convenience rather than a
+ * prerequisite, so callers should treat a failure here as "no draft" and carry
+ * on with the starter code rather than blocking the workspace.
+ */
+export function fetchSavedCode(problemId: number, language = 'python'): Promise<SavedCode> {
+  return request<SavedCode>(`/api/saved-code/${problemId}?language=${encodeURIComponent(language)}`);
+}
+
+/** Replace the saved draft for a problem. One row per user, problem and language. */
+export function saveCode(problemId: number, code: string, language = 'python'): Promise<SavedCode> {
+  return request<SavedCode>(`/api/saved-code/${problemId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ code, language }),
   });
 }
 
 export function fetchHealth(): Promise<Health> {
   return request<Health>('/api/health');
+}
+
+/**
+ * The signed-in user, resolved from the Clerk session token.
+ *
+ * Doubles as the "is my token still good?" probe: a 401 means the client
+ * should sign the user out rather than retry.
+ */
+export function fetchMe(): Promise<User> {
+  return request<User>('/api/auth/me');
 }
 
 /** Reduce a run result to the summary the review endpoint expects. */

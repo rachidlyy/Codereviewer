@@ -1,0 +1,34 @@
+# The build context is the repository root, so that a runner image can COPY the
+# shared harness (`backend/app/services/_runner_harness.py`). That is the whole
+# reason the context is the root rather than `docker/`.
+#
+# These exclusions keep the context small. `frontend/node_modules` alone is
+# about 7,500 files, and it would otherwise be uploaded to the daemon on every
+# single build.
+#
+# Deliberately *not* using a bare `*` with `!` re-includes: Docker cannot
+# re-include a file whose parent directory is excluded, so that idiom needs a
+# verbose re-include of every directory on the path and breaks quietly when it
+# is got wrong.
+
+frontend/
+dist/
+node_modules/
+
+backend/.venv/
+backend/alembic/versions/__pycache__/
+
+.git/
+.github/
+
+**/__pycache__/
+*.pyc
+*.pyo
+
+.env
+.env.*
+!.env.example
+
+design.md
+tokens.css
+plan.md

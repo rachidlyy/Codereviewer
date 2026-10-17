@@ -1,0 +1,275 @@
+{
+  "1": [
+    {
+      "name": "Basic duplicate",
+      "args": [[1, 2, 3, 1]],
+      "expected": true
+    },
+    {
+      "name": "All distinct",
+      "args": [[1, 2, 3, 4]],
+      "expected": false
+    },
+    {
+      "name": "Empty array",
+      "args": [[]],
+      "expected": false
+    },
+    {
+      "name": "Large input (performance)",
+      "generate": { "kind": "range", "n": 200000 },
+      "expected": false,
+      "timeout": 3.0
+    }
+  ],
+  "2": [
+    {
+      "name": "Basic pair",
+      "args": [[2, 7, 11, 15], 9],
+      "expected": [0, 1]
+    },
+    {
+      "name": "Middle pair",
+      "args": [[3, 2, 4], 6],
+      "expected": [1, 2]
+    },
+    {
+      "name": "Repeated values",
+      "args": [[3, 3], 6],
+      "expected": [0, 1]
+    }
+  ],
+  "3": [
+    {
+      "name": "Valid anagram",
+      "args": ["anagram", "nagaram"],
+      "expected": true
+    },
+    {
+      "name": "Not an anagram",
+      "args": ["rat", "car"],
+      "expected": false
+    },
+    {
+      "name": "Both empty",
+      "args": ["", ""],
+      "expected": true
+    }
+  ],
+  "4": [
+    {
+      "name": "Target present",
+      "args": [[-1, 0, 3, 5, 9, 12], 9],
+      "expected": 4
+    },
+    {
+      "name": "Target absent",
+      "args": [[-1, 0, 3, 5, 9, 12], 2],
+      "expected": -1
+    },
+    {
+      "name": "Single element",
+      "args": [[5], 5],
+      "expected": 0
+    }
+  ],
+  "5": [
+    {
+      "name": "Mixed signs",
+      "args": [[-2, 1, -3, 4, -1, 2, 1, -5, 4]],
+      "expected": 6
+    },
+    {
+      "name": "Single element",
+      "args": [[1]],
+      "expected": 1
+    },
+    {
+      "name": "All positive",
+      "args": [[5, 4, -1, 7, 8]],
+      "expected": 23
+    }
+  ],
+  "6": [
+    {
+      "name": "Simple pair",
+      "args": ["()"],
+      "expected": true
+    },
+    {
+      "name": "All three kinds",
+      "args": ["()[]{}"],
+      "expected": true
+    },
+    {
+      "name": "Nested correctly",
+      "args": ["{[]}"],
+      "expected": true
+    },
+    {
+      "name": "Wrong closing type",
+      "args": ["(]"],
+      "expected": false
+    },
+    {
+      "name": "Interleaved",
+      "args": ["([)]"],
+      "expected": false
+    },
+    {
+      "name": "Unclosed opener",
+      "args": ["("],
+      "expected": false
+    },
+    {
+      "name": "Empty string",
+      "args": [""],
+      "expected": true
+    }
+  ],
+  "7": [
+    {
+      "name": "Three groups",
+      "args": [["eat", "tea", "tan", "ate", "nat", "bat"]],
+      "expected": [["ate", "eat", "tea"], ["bat"], ["nat", "tan"]],
+      "comparator": "unordered"
+    },
+    {
+      "name": "Single empty string",
+      "args": [[""]],
+      "expected": [[""]],
+      "comparator": "unordered"
+    },
+    {
+      "name": "Two singles and a pair",
+      "args": [["a", "b", "ab", "ba"]],
+      "expected": [["a"], ["b"], ["ab", "ba"]],
+      "comparator": "unordered"
+    }
+  ],
+  "8": [
+    {
+      "name": "Basic product",
+      "args": [[1, 2, 3, 4]],
+      "expected": [24, 12, 8, 6]
+    },
+    {
+      "name": "Contains one zero",
+      "args": [[-1, 1, 0, -3, 3]],
+      "expected": [0, 0, 9, 0, 0]
+    },
+    {
+      "name": "Two elements",
+      "args": [[2, 3]],
+      "expected": [3, 2]
+    },
+    {
+      "name": "All zeros",
+      "args": [[0, 0]],
+      "expected": [0, 0]
+    }
+  ],
+  "9": [
+    {
+      "name": "Classic overlap",
+      "args": [[[1, 3], [2, 6], [8, 10], [15, 18]]],
+      "expected": [[1, 6], [8, 10], [15, 18]]
+    },
+    {
+      "name": "Touching intervals",
+      "args": [[[1, 4], [4, 5]]],
+      "expected": [[1, 5]]
+    },
+    {
+      "name": "Unsorted input",
+      "args": [[[1, 4], [0, 4]]],
+      "expected": [[0, 4]]
+    },
+    {
+      "name": "Fully contained",
+      "args": [[[1, 4], [2, 3]]],
+      "expected": [[1, 4]]
+    },
+    {
+      "name": "Single interval",
+      "args": [[[1, 2]]],
+      "expected": [[1, 2]]
+    }
+  ],
+  "10": [
+    {
+      "name": "Repeating window",
+      "args": ["abcabcbb"],
+      "expected": 3
+    },
+    {
+      "name": "All the same character",
+      "args": ["bbbbb"],
+      "expected": 1
+    },
+    {
+      "name": "Window restarts",
+      "args": ["pwwkew"],
+      "expected": 3
+    },
+    {
+      "name": "Revisit after a gap",
+      "args": ["dvdf"],
+      "expected": 3
+    },
+    {
+      "name": "Empty string",
+      "args": [""],
+      "expected": 0
+    }
+  ],
+  "11": [
+    {
+      "name": "Classic map",
+      "args": [[0, 1, 0, 2, 1, 0, 1, 3, 2, 1, 2, 1]],
+      "expected": 6
+    },
+    {
+      "name": "Tall middle",
+      "args": [[4, 2, 0, 3, 2, 5]],
+      "expected": 9
+    },
+    {
+      "name": "Ascending stairs trap nothing",
+      "args": [[1, 2, 3, 4, 5]],
+      "expected": 0
+    },
+    {
+      "name": "Empty map",
+      "args": [[]],
+      "expected": 0
+    }
+  ],
+  "12": [
+    {
+      "name": "Odd total length",
+      "args": [[1, 3], [2]],
+      "expected": 2.0
+    },
+    {
+      "name": "Even total length",
+      "args": [[1, 2], [3, 4]],
+      "expected": 2.5
+    },
+    {
+      "name": "One array empty",
+      "args": [[], [1]],
+      "expected": 1.0
+    },
+    {
+      "name": "All zeros",
+      "args": [[0, 0], [0, 0]],
+      "expected": 0.0
+    },
+    {
+      "name": "Interleaved",
+      "args": [[1, 3], [2, 7]],
+      "expected": 2.5
+    }
+  ]
+}

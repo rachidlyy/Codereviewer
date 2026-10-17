@@ -9,6 +9,7 @@ key is missing.
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -147,9 +148,198 @@ TEST_TIMEOUT_SECONDS: float = _get_float("TEST_TIMEOUT_SECONDS", 3.0)
 #: Hard ceiling for the whole submission, in seconds.
 SUBMISSION_TIMEOUT_SECONDS: float = _get_float("SUBMISSION_TIMEOUT_SECONDS", 20.0)
 
+#: Ceiling for a *measurement* ladder, in seconds. Deliberately larger than
+#: ``SUBMISSION_TIMEOUT_SECONDS``.
+#:
+#: A test run must be quick because a student is waiting on it, and a slow
+#: answer is a failure. A measurement ladder is the opposite: it runs the same
+#: code at three sizes and the slowness at the largest size *is the signal*, so
+#: cutting it short loses the very data the classification rests on. On an idle
+#: machine the default ladder costs about 2.2s for a quadratic solution; this is
+#: a backstop, not the expected cost.
+#:
+#: It is a backstop rather than a tuning knob on purpose. Measured 2026-09-23
+#: with C: at 100% full, the *same* code at the *same* size came in **34x**
+#: slower than the recorded ladder - 1.33s against 39ms. No ladder survives that,
+#: and shrinking the sizes to fit a pathological machine would only hide it.
+#: ``measure_scaling`` therefore reports a missing measurement per size instead
+#: of inventing one, and the classifier decides whether a partial ladder is
+#: enough.
+SCALING_TIMEOUT_SECONDS: float = _get_float("SCALING_TIMEOUT_SECONDS", 40.0)
+
 #: Python interpreter used to execute student code. Defaults to the
 #: interpreter running the API server.
 PYTHON_EXECUTABLE: str = os.getenv("PYTHON_EXECUTABLE", "").strip()
+
+
+# --- Execution sandbox (plan phase 2) -------------------------------------
+#
+# Student code runs in a hardened, network-less container. The host subprocess
+# runner is kept behind ``RUNNER_BACKEND=subprocess`` as the escape hatch: this
+# is a local demo, Docker Desktop on Windows is the least reliable component in
+# the stack, and a demo that cannot run at all is worse than one without a
+# sandbox.
+
+#: ``docker`` (default) or ``subprocess``.
+#:
+#: Defaults to ``docker`` rather than falling back automatically. A silent
+#: downgrade from a sandbox to no sandbox is a security-relevant change that
+#: nobody would notice, so the choice is explicit and a failure is loud.
+RUNNER_BACKEND: str = os.getenv("RUNNER_BACKEND", "docker").strip().lower()
+
+#: Image used for Python submissions. Build it with:
+#:   docker build -f docker/runner-python/Dockerfile -t codereviewer-runner-python .
+RUNNER_IMAGE: str = os.getenv("RUNNER_IMAGE", "codereviewer-runner-python").strip()
+
+#: One image per language, because a submission picks its language and a single
+#: shared image would have to carry every toolchain at once - 3-5 GB for four
+#: languages, on a machine whose C: drive has hit 0 bytes free twice.
+#:
+#: ``RUNNER_IMAGE`` is honoured as the Python entry's default so an existing
+#: ``.env`` override keeps working; the per-language variables win over it.
+RUNNER_IMAGES: dict[str, str] = {
+    "python": os.getenv("RUNNER_IMAGE_PYTHON", RUNNER_IMAGE).strip(),
+    "javascript": os.getenv("RUNNER_IMAGE_NODE", "codereviewer-runner-node").strip(),
+}
+
+#: Node interpreter used when ``RUNNER_BACKEND=subprocess``. Empty means "find
+#: ``node`` on PATH", which is what the demo machine needs; an explicit path is
+#: for a machine where the managed Node is not on the API server's PATH.
+NODE_EXECUTABLE: str = os.getenv("NODE_EXECUTABLE", "").strip()
+
+
+def runner_image(language: str) -> str:
+    """The sandbox image for a language, falling back to Python's."""
+    return RUNNER_IMAGES.get(language, RUNNER_IMAGE)
+
+#: Hard memory ceiling per submission. A submission that tries to exceed it is
+#: killed by the kernel inside the container rather than swapping the host.
+RUNNER_MEMORY_LIMIT: str = os.getenv("RUNNER_MEMORY_LIMIT", "512m").strip()
+
+#: CPU quota. One core keeps a busy loop from starving the API server.
+RUNNER_CPUS: str = os.getenv("RUNNER_CPUS", "1").strip()
+
+#: Process ceiling, so a fork bomb cannot exhaust the host's process table.
+RUNNER_PIDS_LIMIT: int = _get_int("RUNNER_PIDS_LIMIT", 128)
+
+#: Size of the one writable mount inside the container.
+#:
+#: On a machine where C: has reached 0 bytes free, an unbounded write is not a
+#: hypothetical failure - it has already broken tooling twice.
+RUNNER_TMPFS_SIZE: str = os.getenv("RUNNER_TMPFS_SIZE", "128m").strip()
+
+#: Docker CLI. Override when it is not on PATH.
+DOCKER_BINARY: str = os.getenv("DOCKER_BINARY", "docker").strip()
+
+#: Extra seconds allowed on top of ``SUBMISSION_TIMEOUT_SECONDS`` for the
+#: container itself to start and be torn down.
+#:
+#: The per-case limits are enforced *inside* the container, so this is only a
+#: backstop against the container hanging outright - it should never be the
+#: thing that ends a normal run.
+DOCKER_STARTUP_GRACE_SECONDS: float = _get_float("DOCKER_STARTUP_GRACE_SECONDS", 15.0)
+
+
+def runner_backend() -> str:
+    """The configured backend, normalised and validated.
+
+    An unrecognised value falls back to ``docker`` and is reported by
+    ``/api/health`` rather than silently changing behaviour.
+    """
+    return RUNNER_BACKEND if RUNNER_BACKEND in {"docker", "subprocess"} else "docker"
+
+
+def check_docker() -> tuple[bool, str | None]:
+    """Is the Docker daemon reachable? Returns ``(ok, error_message)``.
+
+    Mirrors ``db.check_database``: report, do not raise. Called by
+    ``/api/health``, never on the hot path of a run - a failed ``docker run``
+    already produces a good enough error, and probing before every submission
+    would add a second of latency to every demo click.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [DOCKER_BINARY, "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False, f"the '{DOCKER_BINARY}' command was not found on PATH"
+    except subprocess.TimeoutExpired:
+        return False, "docker did not answer within 10s"
+    except OSError as exc:
+        return False, f"could not run '{DOCKER_BINARY}': {exc}"
+
+    if completed.returncode != 0:
+        detail = " ".join((completed.stderr or completed.stdout or "").split())
+        return False, detail[:400] or f"docker exited with {completed.returncode}"
+
+    return True, None
+
+
+# --- Database -------------------------------------------------------------
+
+#: SQLAlchemy URL for the application database.
+#:
+#: Uses the psycopg (v3) driver, hence the ``+psycopg`` suffix - plain
+#: ``postgresql://`` would make SQLAlchemy reach for psycopg2, which is not
+#: installed. The password is not defaulted: there is no sensible guess, and
+#: a wrong default produces a confusing auth failure instead of an obvious
+#: "not configured" state.
+DATABASE_URL: str = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg://codereviewer@127.0.0.1:5432/codereviewer",
+).strip()
+
+#: Echo every SQL statement to the log. Very noisy - debugging only.
+DB_ECHO: bool = _get_bool("DB_ECHO", False)
+
+#: Size of the connection pool. Small on purpose: this is a single-user
+#: academic demo, not a service under load.
+DB_POOL_SIZE: int = _get_int("DB_POOL_SIZE", 5)
+
+
+def database_configured() -> bool:
+    """True when a database URL is present.
+
+    Phase 2 made the database load-bearing (sign-in is mandatory), so this
+    is reported by ``/api/health`` rather than used to silently degrade.
+    """
+    return bool(DATABASE_URL)
+
+
+# --- Auth (Clerk) ---------------------------------------------------------
+
+#: Clerk secret key (``sk_test_...`` for a development instance).
+#:
+#: Used by the backend *only* to verify session tokens. Clerk owns sign-up,
+#: sign-in and password storage, so there is no password hashing and no
+#: token signing anywhere in this codebase.
+CLERK_SECRET_KEY: str = os.getenv("CLERK_SECRET_KEY", "").strip()
+
+#: Comma-separated list of origins a session token may be used from.
+#:
+#: Clerk's verifier rejects a token whose ``azp`` claim is not in this list,
+#: which presents as a plain 401 even though the token itself is perfectly
+#: valid. Leaving this empty therefore breaks auth in a way that looks like
+#: a bad key, so it defaults to the Vite dev origin rather than to "".
+CLERK_AUTHORIZED_PARTIES: list[str] = [
+    origin.strip()
+    for origin in os.getenv(
+        "CLERK_AUTHORIZED_PARTIES",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
+
+def auth_configured() -> bool:
+    """True when Clerk is configured well enough to verify a token."""
+    return bool(CLERK_SECRET_KEY)
 
 
 # --- Server ---------------------------------------------------------------

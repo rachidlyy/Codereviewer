@@ -3,7 +3,7 @@ import { ArrowLeft, CircleAlert } from 'lucide-react';
 import EditorPanel from '../components/EditorPanel';
 import ProblemPanel from '../components/ProblemPanel';
 import ReviewPanel from '../components/ReviewPanel';
-import type { ProblemSummary, Review, RunResult } from '../types';
+import type { LanguageSpec, ProblemSummary, Review, RunResult, SaveState } from '../types';
 
 type Props = {
   problem: ProblemSummary;
@@ -21,6 +21,12 @@ type Props = {
   reviewError: string | null;
   codeLoading: boolean;
   codeError: string | null;
+  /** Auto-save status of the working draft. */
+  saveState: SaveState;
+  /** The language the student is working in, and the ones this problem offers. */
+  language: string;
+  languages: Record<string, LanguageSpec>;
+  onLanguageChange: (language: string) => void;
 };
 
 export default function WorkspacePage({
@@ -39,6 +45,10 @@ export default function WorkspacePage({
   reviewError,
   codeLoading,
   codeError,
+  saveState,
+  language,
+  languages,
+  onLanguageChange,
 }: Props) {
   return (
     <main className="workspace">
@@ -87,6 +97,10 @@ export default function WorkspacePage({
             stale={stale}
             reviewError={reviewError}
             loading={codeLoading}
+            saveState={saveState}
+            language={language}
+            languages={languages}
+            onLanguageChange={onLanguageChange}
           />
           {review && <ReviewPanel review={review} />}
         </div>

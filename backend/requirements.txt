@@ -1,10 +1,27 @@
 # CodeReviewer - backend dependencies
 # Install with:  .venv/Scripts/python.exe -m pip install -r requirements.txt
 #
-# The MVP intentionally has no database driver, no Redis and no container
-# tooling. Code execution uses the standard library's subprocess module.
+# Phase 2 added a database and hosted auth, so the stack is no longer
+# dependency-free. Code execution still uses the standard library's
+# subprocess module - no container tooling, and still no Redis.
 
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 httpx>=0.27,<1.0
 python-dotenv>=1.0,<2.0
+
+# --- Database (Phase 2) ---------------------------------------------------
+# `psycopg` is the v3 driver, which is why DATABASE_URL uses the
+# `postgresql+psycopg://` scheme. Plain `postgresql://` would make SQLAlchemy
+# look for psycopg2, which is not installed, and fail with a confusing
+# "ModuleNotFoundError: No module named 'psycopg2'".
+sqlalchemy>=2.0,<3.0
+psycopg[binary]>=3.2,<4.0
+alembic>=1.13,<2.0
+
+# --- Auth (Phase 2) -------------------------------------------------------
+# Clerk owns sign-up, sign-in and password storage. This SDK is used purely
+# to *verify* session tokens, which is why there is no bcrypt/argon2 and no
+# JWT-signing library anywhere in this project.
+# Note it pulls in PyJWT and cryptography transitively.
+clerk-backend-api>=7.0,<8.0

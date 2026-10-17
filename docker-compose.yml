@@ -1,0 +1,45 @@
+# Local development database for CodeReviewer (Phase 2).
+#
+#   docker compose up -d
+#   cd backend && .venv/Scripts/python.exe -m alembic upgrade head
+#
+# Why Docker rather than the PostgreSQL 18 service that is already installed
+# on this machine: the container's credentials are declared here, so setting
+# up the database needs no superuser password from anyone.
+
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: codereviewer-db
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: codereviewer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codereviewer_dev}
+      POSTGRES_DB: codereviewer
+
+    ports:
+      # 5433, NOT 5432. A native PostgreSQL 18 Windows service already owns
+      # 5432 on this machine. Publishing on 5432 would either fail to bind or
+      # leave the app quietly talking to the other server - and the symptom
+      # (migrations appearing to do nothing) is much harder to diagnose than a
+      # bind error.
+      #
+      # Bound to 127.0.0.1 rather than 0.0.0.0 so the database is never
+      # reachable from the local network.
+      - "127.0.0.1:5433:5432"
+
+    volumes:
+      - codereviewer-pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codereviewer -d codereviewer"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  # Named volume, so `docker compose down` keeps the data. Use
+  # `docker compose down -v` to wipe it and start from an empty database.
+  codereviewer-pgdata:
